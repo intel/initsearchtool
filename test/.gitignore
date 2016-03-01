@@ -1,0 +1,3 @@
+# We ignore the aosp init.rc and rely on the
+# download mechanism
+aosp.init.rc

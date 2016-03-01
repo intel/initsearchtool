@@ -1,0 +1,5 @@
+To download an init.rc file from the aosp project, run the local command:
+
+./get.sh
+
+This will populate the test directory with the init.rc file from the AOSP project.

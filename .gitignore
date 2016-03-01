@@ -1,0 +1,11 @@
+# compiled python files
+.pyc
+
+# gedit temp files
+*~
+
+# Eclipse pydev files
+.pydevproject
+
+# Testing files
+*.rc

@@ -720,7 +720,7 @@ class SearchCommand(object):
 						opts.append(('--' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store_const', 'const' : True, 'dest' : k }))
 						opts.append(('--not' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store_const', 'const' : False, 'dest' : k}))
 
-					elif t == None:
+					else:
 						opts.append(('--' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store', 'dest' : k }))
 
 		self._opts = opts

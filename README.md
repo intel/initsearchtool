@@ -1,7 +1,7 @@
 # Init Search Tool
 
 ## About
-The init search tool aka ingrep, is a tool for intelligently searching Android
+The init search tool aka isearch, is a tool for intelligently searching Android
 [<sup>TM</sup>](#trademark)
 init.rc files. The tool can print, search and verify init.rc files.
 
@@ -32,13 +32,13 @@ per the AOSP init readme.txt under system/core/init.
 ## search
 Likely one of the best features, the basics are:
 ```
-$ ingrep search --section=<section> <search parameters> init.rc ...
+$ isearch search --section=<section> <search parameters> init.rc ...
 ```
 To search for all on sections that relate to propery foo.bar, one could perform
 the following search command:
 
 ```
-$ ./ingrep.py search --section=on --args='property:foo\.bar' init.rc
+$ ./isearch.py search --section=on --args='property:foo\.bar' init.rc
 on(test/init.aosp.rc : 28): property:foo.bar=*
 	mkdir /foo/bar 0777 system system
 
@@ -71,8 +71,8 @@ will exit in error and print out the offending lines. The option *--gen* can be
 specified to produce the list of test exceptions.
 
 ```
-$ ./ingrep.py verify --asert=assert.xml init.rc
-$ ./ingrep.py verify --assert=test/assert.xml test/init.aosp.rc
+$ ./isearch.py verify --asert=assert.xml init.rc
+$ ./isearch.py verify --assert=test/assert.xml test/init.aosp.rc
 Failed test(No world files):
 on(test/init.aosp.rc : 13): early-init
 	command(25) : mkdir /danger 0777 root root
@@ -86,7 +86,7 @@ This option just prints the init.rc file(s) specified. It takes the option
 *--lineno* to optionally print each linenumer in the section.
 
 ```
-$ ./ingrep.py print test/init.aosp.rc
+$ ./isearch.py print test/init.aosp.rc
 ```
 
 <a name="trademark"></a>

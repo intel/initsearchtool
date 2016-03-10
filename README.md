@@ -34,7 +34,7 @@ Likely one of the best features, the basics are:
 ```
 $ isearch search --section=<section> <search parameters> init.rc ...
 ```
-To search for all on sections that relate to propery foo.bar, one could perform
+To search for all on sections that relate to property foo.bar, one could perform
 the following search command:
 
 ```
@@ -49,11 +49,11 @@ the search. This option can be added numerous times, and is cumulative. All
 supplied strings must match. Many section keywords are cumulative with the
 exception of args (for all sections) and some service keywords. Boolean service
 keywords, like *critical* are not cumulative and can be also searched by their
-boolean logic not equivalent, *--critical* or *--notcritical*. The general format
+Boolean logic not equivalent, *--critical* or *--notcritical*. The general format
 for search keywords is --<keyword> and --not<keyword>
 
 Additional output options include *--tidy* which prints only matches within
-the section, and *--lineno* to print linenumbers with the output. An unset
+the section, and *--lineno* to print line numbers with the output. An unset
 line number means its a section default. For instance, with the section service
 user contains a default of 'root'.
 
@@ -71,7 +71,7 @@ will exit in error and print out the offending lines. The option *--gen* can be
 specified to produce the list of test exceptions.
 
 ```
-$ ./isearch.py verify --asert=assert.xml init.rc
+$ ./isearch.py verify --assert=assert.xml init.rc
 $ ./isearch.py verify --assert=test/assert.xml test/init.aosp.rc
 Failed test(No world files):
 on(test/init.aosp.rc : 13): early-init
@@ -80,10 +80,17 @@ on(test/init.aosp.rc : 29): property:foo.bar=*
 	command(30) : mkdir /foo/bar 0777 system system
 ```
 
+Its important to note, the the matches from the search portion of the test, ie
+find me bad things, is matches against the exceptions. Thus their is no coupling
+between bad-thing and entity. For instance, this test is not possible:
+
+Find me all world write-able sockets except those belonging to service x. This
+is a limitation currently.
+
 ### print
 
 This option just prints the init.rc file(s) specified. It takes the option
-*--lineno* to optionally print each linenumer in the section.
+*--lineno* to optionally print each line number in the section.
 
 ```
 $ ./isearch.py print test/init.aosp.rc

@@ -12,3 +12,6 @@
 
 # aspell .bak files
 *.bak
+
+# vim swp files
+*.swp

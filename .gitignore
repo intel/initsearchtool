@@ -9,3 +9,6 @@
 
 # Testing files
 *.rc
+
+# aspell .bak files
+*.bak

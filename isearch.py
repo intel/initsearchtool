@@ -21,7 +21,18 @@ class Match(object):
 		return hash(self._section)
 
 	def __eq__(self, other):
-		return self._section == other._section and self._submatches == other._submatches
+		if self._section != other._section:
+			return False
+		
+		#their must be a match for everything in other._submatches in self or
+		# not equal 
+		selfsubs = self._submatches
+		othersubs = other._submatches
+		for os in othersubs:
+			if os not in selfsubs:
+				return False
+				
+		return self._submatches <= other._submatches
 
 	def write(self, filep=sys.stdout, lineno=False, tidy=False):
 
@@ -498,6 +509,7 @@ class Test(object):
 		self._current = None
 
 	def end_exception(self):
+		self._current['section'] = self._section
 		self._exceptions.append(self._current)
 		self._current = None
 
@@ -787,9 +799,10 @@ class VerifyCommand(object):
 	def _print(failed_tests):
 		for t in failed_tests:
 			sys.stderr.write('Failed test(' + t.getName() + '):\n')
-			for match, deltalist in t.get_violators():
+			for match in t.get_violators():
+				submatches = match.get_sub_matches()
 				sys.stderr.write(match.get_section().get_header() + '\n')
-				for delta in deltalist:
+				for delta in submatches:
 					for k, v in delta.iteritems():
 						sys.stderr.write('\t' + k + '(' + str(v[1]) + ') : ' + v[0])
 						sys.stderr.write('\n')
@@ -799,6 +812,7 @@ class VerifyCommand(object):
 			# we use a set to de-duplicate the results from
 			# multiple searches
 			found = set()
+			excepts = set()
 
 			for s in search_args:
 				# Set the internal search flag to silent so we get
@@ -809,36 +823,21 @@ class VerifyCommand(object):
 					for x in f:
 						found.add(x)
 
-			return VerifyCommand._drop_exceptions(found, exception_args)
+			for e in exception_args:
+				# Set the internal search flag to silent so we get
+				# a list back and don't print
+				e['silent'] = True
+				f = self._search(e)
+				if f != None:
+					for x in f:
+						excepts.add(x)
 
-	@staticmethod
-	def _drop_exceptions(found, excepts):
+			x = found - excepts
+			
+			# After set diff, you don't always get a set on elements of 1.
+			
+			return x
 
-		violators = []
-
-		for f in found:
-
-			subs = f.get_sub_matches()
-			potentials = list(subs)
-
-			for s in subs:
-				for e in excepts:
-
-					for k, v in e.iteritems():
-						# keys must match
-						if k not in s:
-							continue
-
-						for r in v:
-							r = re.compile(r)
-							matched = r.match(s[k][0])
-							if matched:
-								potentials.remove(s)
-
-			if len(potentials) > 0:
-				violators.append((f, potentials))
-
-		return violators
 
 	def _search(self, args):
 		return commandlet.get()['search'](self._init_parser, args)

@@ -23,16 +23,16 @@ class Match(object):
 	def __eq__(self, other):
 		if self._section != other._section:
 			return False
-
+		
 		#their must be a match for everything in other._submatches in self or
-		# not equal
+		# not equal 
 		selfsubs = self._submatches
 		othersubs = other._submatches
 		for os in othersubs:
 			if os not in selfsubs:
 				return False
-
-		return True
+				
+		return self._submatches <= other._submatches
 
 	def write(self, filep=sys.stdout, lineno=False, tidy=False):
 
@@ -787,21 +787,14 @@ class VerifyCommand(object):
 
 	@staticmethod
 	def _gen(failed_tests):
-
-		kws = "    <keyword %s ='%s' />\n"
-
 		for t in failed_tests:
 			sys.stderr.write('Failed test(' + t.getName() + '):\n')
 			for v in t.get_violators():
+				v = v[1]
 
-				sys.stderr.write('  <except>\n')
-				sys.stderr.write(kws % ('args', v.get_section().get_args()[0]))
-
-				for x in v.get_sub_matches():
+				for x in v:
 					for k, v in x.iteritems():
-						sys.stderr.write(kws %(k, v[0]))
-
-				sys.stderr.write('  </except>\n')
+						sys.stderr.write("            <keyword " + k + "='" + v[0] + "' />\n")
 	@staticmethod
 	def _print(failed_tests):
 		for t in failed_tests:
@@ -818,8 +811,6 @@ class VerifyCommand(object):
 
 			# we use a set to de-duplicate the results from
 			# multiple searches
-			# We are building sets of hash objects, this will call
-			# the Match.__hash__() method.
 			found = set()
 			excepts = set()
 
@@ -841,15 +832,11 @@ class VerifyCommand(object):
 					for x in f:
 						excepts.add(x)
 
-			#
-			# These are sets of Match objects, thus the operation below
-			# calls __eq__ Later on, we print the submatches populated from
-			# search(), however, it would be best to somehow filter the
-			# submatches to only account for things not in the exceptions.
-			# The case of not-equal and they are left in the set delat is of
-			# importance.
-			#
-			return found - excepts
+			x = found - excepts
+			
+			# After set diff, you don't always get a set on elements of 1.
+			
+			return x
 
 
 	def _search(self, args):

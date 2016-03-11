@@ -1,74 +1,14 @@
-<?xml version="1.0"?>
 <suite>
-  <test name="No world sockets" section="service">
-    <search>
-      <keyword socket="[0-9]{3}[2-7]"/>
-    </search>
-    <except>
-      <!-- Except logd with these explicit sockets -->
-      <keyword args="logd /system/bin/logd"/>
-      <keyword socket="logd stream 0666 logd logd"/>
-      <keyword socket="logdr seqpacket 0666 logd logd"/>
-      <keyword socket="logdw dgram 0222 logd logd"/>
-    </except>
-  </test>
-  <test name="No world files" section="on">
-    <search>
-      <keyword command="[0-9]{3}[2-7]"/>
-    </search>
-    <except>
-      <keyword args="boot"/>
-      <keyword command="chmod 0664 /sys/module/lowmemorykiller/parameters/adj"/>
-      <keyword command="chmod 0664 /sys/module/lowmemorykiller/parameters/minfree"/>
-    </except>
-    <except>
-      <keyword args="early-init"/>
-      <keyword command="mkdir /mnt 0775 root system"/>
-    </except>
-    <except>
-      <keyword args="init"/>
-      <keyword command="chmod 0664 /sys/fs/cgroup/stune/tasks"/>
-      <keyword command="chmod 0664 /sys/fs/cgroup/stune/foreground/tasks"/>
-      <keyword command="mount tmpfs tmpfs /mnt mode=0755,uid=0,gid=1000"/>
-      <keyword command="mkdir /mnt/asec 0755 root system"/>
-      <keyword command="mkdir /mnt/obb 0755 root system"/>
-      <keyword command="mkdir /mnt/user 0755 root root"/>
-      <keyword command="mkdir /mnt/user/0 0755 root root"/>
-      <keyword command="mkdir /mnt/runtime/default 0755 root root"/>
-      <keyword command="mkdir /mnt/runtime/default/self 0755 root root"/>
-      <keyword command="mkdir /mnt/runtime/read 0755 root root"/>
-      <keyword command="mkdir /mnt/runtime/read/self 0755 root root"/>
-      <keyword command="mkdir /mnt/runtime/write 0755 root root"/>
-      <keyword command="mkdir /mnt/runtime/write/self 0755 root root"/>
-      <keyword command="write /proc/sys/vm/mmap_min_addr 32768"/>
-      <keyword command="write /proc/sys/net/ipv4/ping_group_range &quot;0 2147483647&quot;"/>
-      <keyword command="chmod 0666 /dev/cpuctl/tasks"/>
-      <keyword command="write /dev/cpuctl/cpu.shares 1024"/>
-      <keyword command="chmod 0666 /dev/cpuctl/bg_non_interactive/tasks"/>
-      <keyword command="chmod 0664 /dev/cpuset/foreground/tasks"/>
-      <keyword command="chmod 0664 /dev/cpuset/foreground/boost/tasks"/>
-      <keyword command="chmod 0664 /dev/cpuset/background/tasks"/>
-      <keyword command="chmod 0664 /dev/cpuset/system-background/tasks"/>
-      <keyword command="chmod 0664 /dev/cpuset/tasks"/>
-      <keyword command="chmod 0644 /dev/xt_qtaguid"/>
-    </except>
-    <except>
-      <keyword args="post-fs-data"/>
-      <keyword command="mkdir /data/bootchart 0755 shell shell"/>
-      <keyword command="mkdir /data/misc 01771 system misc"/>
-      <keyword command="mkdir /data/misc/bluedroid 02770 bluetooth net_bt_stack"/>
-      <keyword command="mkdir /data/misc/zoneinfo 0775 system system"/>
-      <keyword command="mkdir /data/misc/perfprofd 0775 root root"/>
-      <keyword command="mkdir /data/anr 0775 system system"/>
-      <keyword command="mkdir /data/system 0775 system system"/>
-    </except>
-    <except>
-      <keyword args="property:ro.debuggable=1"/>
-      <keyword command="chmod 0773 /data/misc/trace"/>
-    </except>
-    <except>
-      <keyword args="post-fs"/>
-      <keyword command="chmod 0444 /sys/fs/selinux/policy"/>
-    </except>
-  </test>
+    <test name='No world sockets' section='service'>
+        <search>
+            <keyword socket="[0-9]{3}[2-7]" />
+        </search>
+        <except>
+            <!-- Except logd with these explicit sockets -->
+            <keyword args='logd /system/bin/logd' />
+            <keyword socket='logd stream 0666 logd logd' />
+            <keyword socket='logdr seqpacket 0666 logd logd' />
+            <keyword socket='logdw dgram 0222 logd logd' />
+        </except>
+    </test>
 </suite>

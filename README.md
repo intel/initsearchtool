@@ -80,12 +80,8 @@ on(test/init.aosp.rc : 29): property:foo.bar=*
 	command(30) : mkdir /foo/bar 0777 system system
 ```
 
-Its important to note, the the matches from the search portion of the test, ie
-find me bad things, is matches against the exceptions. Thus their is no coupling
-between bad-thing and entity. For instance, this test is not possible:
-
-Find me all world write-able sockets except those belonging to service x. This
-is a limitation currently.
+Note that the failure output or gen output includes all things that matched
+the test search, and does not exclude the matches from the exceptions.
 
 ### print
 

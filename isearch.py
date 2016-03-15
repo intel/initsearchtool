@@ -239,7 +239,13 @@ class Section(object):
 
 					q = str(q[0]).lower() if isinstance(q[0], bool) else q[0]
 
+					# Do not attempt to search on a key when the service has not set it
+					# and the default is '(None, -1)'
+					if not q:
+						continue
+
 					result = pattern.match(q)
+
 					if result:
 						found = found + 1
 						submatches.append({k : x})

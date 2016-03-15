@@ -415,6 +415,10 @@ class InitParser(object):
 				if l.startswith('#'):
 					continue
 
+				# Ignore pystache conditional lines
+				if l.startswith('{{'):
+					continue
+
 				# handle line folding
 				if l.endswith('\\'):
 					line += l + ' '

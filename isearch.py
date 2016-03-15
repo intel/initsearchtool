@@ -306,6 +306,7 @@ class ServiceSection(Section):
 	_KW_IOPRIO = 'ioprio'
 	_KW_ONRESTART = 'onrestart'
 	_KW_WRITEPID = 'writepid'
+	_KW_KEYCODES = 'keycodes'
 
 	_keywords = (Section._join
 	(
@@ -324,6 +325,7 @@ class ServiceSection(Section):
 			_KW_IOPRIO   : (None, -1),
 			_KW_ONRESTART: [],
 			_KW_WRITEPID : [],
+			_KW_KEYCODES : [],
 		}
 	))
 

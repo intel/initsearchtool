@@ -57,11 +57,12 @@ the section, and *--lineno* to print line numbers with the output. An unset
 line number means its a section default. For instance, with the section service
 user contains a default of 'root'.
 
-Another search option is *--strict*. By default search strings are lazy. Each
-search string is modified to be \.\*searchstring\.\*. The strict option takes
-the search string as specified. Its important to note, search strings are
-regular expressions supported by pythons re module. Additionally, regular
-expressions are implicitly line anchored by $regex^.
+Another search option is *--lazy*. By default searches are performed with a
+greedy match. The greedy match is implemented by taking each search string
+and modifying it to be \.\*searchstring\.\*. The lazy option takes the
+search string as specified. Its important to note, search strings are
+regular expressions supported by pythons re module. Additionally, all search
+strings are are implicitly line anchored by $regex^.
 
 ### verify
 

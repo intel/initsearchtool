@@ -40,18 +40,47 @@ class Match(object):
 		if not tidy:
 			s.write(filep=filep, lineno=lineno)
 		else:
-			x = self._subs_to_map()
-			filep.write(s.format(lineno=lineno, option_map=x))
-	def _subs_to_map(self):
-		lst = self.get_sub_matches()
-		match = {}
+			filep.write(s.format(lineno=lineno, option_map=self._submatches))
 
-		for sub in lst:
-			for k, v in sub.iteritems():
-				if k not in match:
-					match[k] = []
-				match[k].append(v)
-		return match
+	def match(self, other):
+		return self._section.match(other, False)
+
+	def filter(self, match):
+
+		left = {}
+		subs = self._submatches
+		fltr = match.get_sub_matches()
+		# The filter might contain arguments that were not matched, ie the search might
+		# have been on socket (so sub_matches is only socket_ but the filter might include
+		# args. We only filter on what the intersection between the two are.
+		fltr_keys = set(fltr.keys())
+		sub_keys = set(subs.keys())
+		keys = fltr_keys & sub_keys
+
+		# Search each key value in the filter (white list exception)
+		for k in keys:
+			v = fltr[k]
+
+			# Keep a copy of the list associated with the k, we remove the
+			# items from the list when a filter matches
+			s = list(subs[k])
+
+			# For each line in the exceptions filter, we compile it
+			# as a possible regex and search the sub_matches with it.
+			for x in v:
+				# If we find a match we remove it from the copy of sub_matches
+				if x in subs[k]:
+					s.remove(x)
+
+			# If anything is left in the list of things, we add it as 'left', ie the delta
+			if len(s) > 0:
+				left[k] = s
+
+		self._submatches = left
+
+		# The filter returns true if it was filtered out, ie nothing left, else if their is a delta
+		# False is returned.
+		return not bool(left)
 
 class Section(object):
 
@@ -190,7 +219,7 @@ class Section(object):
 		keys1 = set(dict1.keys())
 		keys2 = set(dict2.keys())
 
-		submatches = []
+		submatches = {}
 
 		# dict1 doesn't contain the _items in dict2,
 		# dict1 is less than dict2
@@ -248,7 +277,9 @@ class Section(object):
 
 					if result:
 						found = found + 1
-						submatches.append({k : x})
+						if k not in submatches:
+							submatches[k] = []
+						submatches[k].append(x)
 
 			if found < len(rl):
 				# no match
@@ -521,7 +552,7 @@ class Test(object):
 		self._current = None
 
 	def end_exception(self):
-		self._current['section'] = self._section
+		#self._current['section'] = self._section
 		self._exceptions.append(self._current)
 		self._current = None
 
@@ -804,14 +835,16 @@ class VerifyCommand(object):
 
 		for t in failed_tests:
 			sys.stderr.write('Failed test(' + t.getName() + '):\n')
-			for v in t.get_violators():
+			for violator in t.get_violators():
 
+				# We print args + keyword hoping to avoid duplicate matches, but perhaps its best
+				# to print the whole section here.
 				sys.stderr.write('  <except>\n')
-				sys.stderr.write(kws % ('args', v.get_section().get_args()[0]))
+				sys.stderr.write(kws % ('args', violator.get_section().get_args()[0]))
 
-				for x in v.get_sub_matches():
-					for k, v in x.iteritems():
-						sys.stderr.write(kws %(k, v[0]))
+				for k, v in violator.get_sub_matches().iteritems():
+					for x in v:
+						sys.stderr.write(kws %(k, x[0]))
 
 				sys.stderr.write('  </except>\n')
 	@staticmethod
@@ -821,9 +854,9 @@ class VerifyCommand(object):
 			for match in t.get_violators():
 				submatches = match.get_sub_matches()
 				sys.stderr.write(match.get_section().get_header() + '\n')
-				for delta in submatches:
-					for k, v in delta.iteritems():
-						sys.stderr.write('\t' + k + '(' + str(v[1]) + ') : ' + v[0])
+				for k,v in submatches.iteritems():
+					for x in v:
+						sys.stderr.write('\t' + k + '(' + str(x[1]) + ') : ' + x[0])
 						sys.stderr.write('\n')
 
 	def _violations_search(self, search_args, exception_args):
@@ -842,27 +875,17 @@ class VerifyCommand(object):
 				f = self._search(s)
 				if f != None:
 					for x in f:
-						found.add(x)
+						if not self.filter(exception_args, x):
+							found.add(x)
 
-			for e in exception_args:
-				# Set the internal search flag to silent so we get
-				# a list back and don't print
-				e['silent'] = True
-				f = self._search(e)
-				if f != None:
-					for x in f:
-						excepts.add(x)
-
-			#
-			# These are sets of Match objects, thus the operation below
-			# calls __eq__ Later on, we print the submatches populated from
-			# search(), however, it would be best to somehow filter the
-			# submatches to only account for things not in the exceptions.
-			# The case of not-equal and they are left in the set delat is of
-			# importance.
-			#
 			return found - excepts
 
+	def filter(self, exception_args, found):
+
+		for e in exception_args:
+			m =found.match(e)
+			if m:
+				return found.filter(m)
 
 	def _search(self, args):
 		return commandlet.get()['search'](self._init_parser, args)

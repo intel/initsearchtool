@@ -247,8 +247,8 @@ class Section(object):
 
 				if isinstance(r, bool):
 					r = str(r).lower()
-				elif lazy_regex:
-					# Lazyify the search if lazy_regex specified
+				elif not lazy_regex:
+					# Greedify the search if not lazy
 					r = '.*' + r + '.*'
 
 				# Anchor the regex
@@ -422,7 +422,6 @@ class InitParser(object):
 	def __init__(self, files):
 		self._files = files
 		self._items = {}
-		self._lazy = True
 
 		for k in InitParser._section_map:
 			self._items[k] = []
@@ -490,7 +489,7 @@ class InitParser(object):
 
 		return self._section_map[section_name](section_name, section_args, path, lineno)
 
-	def search(self, section_name, search, lazy_regex=True):
+	def search(self, section_name, search, lazy_regex=False):
 
 		found = []
 		section = self._items[section_name]
@@ -603,8 +602,8 @@ class AssertParser(xml.sax.ContentHandler):
 					self._current = Test(**attrs)
 
 				elif name == 'search':
-					if 'strict' not in attrs:
-						attrs['strict'] = True
+					if 'lazy' not in attrs:
+						attrs['lazy'] = True
 
 					self._current.start_search(**attrs)
 
@@ -696,10 +695,10 @@ class SearchCommand(object):
 
 		section_name = args['section']
 
-		lazy_regex = True
-		if 'strict' in args:
-			lazy_regex = args['strict']
-			del args['strict']
+		lazy_search = False
+		if 'lazy' in args:
+			lazy_search = args['lazy']
+			del args['lazy']
 
 		tidy = False
 		if 'tidy' in args:
@@ -734,7 +733,7 @@ class SearchCommand(object):
 			raise Exception("Invalid arguments found: " + str(invalid))
 
 		# A list of match objects
-		found = init_parser.search(section_name, d, lazy_regex)
+		found = init_parser.search(section_name, d, lazy_search)
 
 		if issilent:
 			return found
@@ -751,7 +750,7 @@ class SearchCommand(object):
 		sections = InitParser.get_sectons()
 		s = 'Searches a section given a section name {' + (','.join(sections.keys()) + '}')
 		opts.append(('--section', { 'help' : s, 'required' : True }))
-		opts.append(('--strict', { 'action' : 'store_false', 'help' : 'The default is a lazy search, set this to force strict regex matches.'}))
+		opts.append(('--lazy', { 'action' : 'store_true', 'help' : 'The default is a greedy search, set this to force lazy searches.'}))
 		opts.append(('--tidy', { 'action' : 'store_true', 'help' : 'Set this flag to only print matching keywords for the section'}))
 		opts.append(('--lineno', { 'action' : 'store_true', 'help' : 'Print line numbers on matches'}))
 

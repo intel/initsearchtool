@@ -62,7 +62,7 @@ greedy match. The greedy match is implemented by taking each search string
 and modifying it to be \.\*searchstring\.\*. The lazy option takes the
 search string as specified. Its important to note, search strings are
 regular expressions supported by pythons re module. Additionally, all search
-strings are are implicitly line anchored by $regex^.
+strings are implicitly line anchored by $regex^.
 
 ### verify
 
@@ -80,9 +80,6 @@ on(test/init.aosp.rc : 13): early-init
 on(test/init.aosp.rc : 29): property:foo.bar=*
 	command(30) : mkdir /foo/bar 0777 system system
 ```
-
-Note that the failure output or gen output includes all things that matched
-the test search, and does not exclude the matches from the exceptions.
 
 ### print
 

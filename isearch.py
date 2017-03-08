@@ -747,11 +747,13 @@ class SearchCommand(object):
 
 		if count:
 			print(len(found))
-			return
+			return found
 
 		for m in found:
 			m.write(lineno=lineno, tidy=tidy)
 			sys.stdout.write('\n')
+
+		return found
 
 	def _gen_opts(self):
 		if self._opts != None:

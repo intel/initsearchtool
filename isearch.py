@@ -327,7 +327,8 @@ class ServiceSection(Section):
 	_KW_CONSOLE = 'console'
 	_KW_CRITICAL = 'critical'
 	_KW_DISABLED = 'disabled'
-	_KW_SET_ENV = 'set_env'
+	_KW_SET_ENV = 'setenv'
+	_KW_GET_ENV = 'getenv'
 	_KW_SOCKET = 'socket'
 	_KW_USER = 'user'
 	_KW_GROUP = 'group'
@@ -347,6 +348,7 @@ class ServiceSection(Section):
 			_KW_CRITICAL : (False, -1),
 			_KW_DISABLED : (False, -1),
 			_KW_SET_ENV  : [],
+			_KW_GET_ENV  : [],
 			_KW_SOCKET   : [],
 			_KW_USER     : ('root', -1),
 			_KW_GROUP	 : [ ('root', -1) ],

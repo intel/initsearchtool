@@ -712,6 +712,11 @@ class SearchCommand(object):
 			lineno = args['lineno']
 			del args['lineno']
 
+		count = False
+		if 'count' in args:
+			count = args['count']
+			del args['count']
+
 		del args['section']
 
 		# This option is not exposed externally to the commandline
@@ -740,6 +745,10 @@ class SearchCommand(object):
 		if issilent:
 			return found
 
+		if count:
+			print(len(found))
+			return
+
 		for m in found:
 			m.write(lineno=lineno, tidy=tidy)
 			sys.stdout.write('\n')
@@ -755,6 +764,7 @@ class SearchCommand(object):
 		opts.append(('--lazy', { 'action' : 'store_true', 'help' : 'The default is a greedy search, set this to force lazy searches.'}))
 		opts.append(('--tidy', { 'action' : 'store_true', 'help' : 'Set this flag to only print matching keywords for the section'}))
 		opts.append(('--lineno', { 'action' : 'store_true', 'help' : 'Print line numbers on matches'}))
+		opts.append(('--count',  { 'action' : 'store_true', 'help' : 'Print the number of matches'}))
 
 		seen = {}
 		for n in sections:

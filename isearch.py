@@ -6,6 +6,110 @@ import re
 import sys
 import xml.sax
 
+class NumberMatcher(object):
+	def __init__(self, matcher):
+
+		# it can be a range
+		if ',' in matcher:
+			x = matcher.split(',')
+			if len(x) != 2:
+				raise ValueError('Expected valid range x,b no spaces, got: "%s"' % matcher)
+
+			found_range = []
+			for n in x:
+				try:
+					n = int(n, 0)
+					found_range.append(n)
+				except ValueError:
+					raise ValueError('Expected range number to be a number, got: "%s"' % n)
+
+			# if they are equal, coerce to ==n format
+			if found_range[0] == found_range[1]:
+				self._value = found_range[0]
+				self._operator = "=="
+				# nothing more to do
+				return
+
+			# range(a, b) expects a < b or returns empty range
+			# thus sort so a < b
+			if found_range[1] < found_range[0]:
+				tmp = found_range[0]
+				found_range[0] = found_range[1]
+				found_range[1] = tmp
+
+			# set the range
+			self._value = range(found_range[0], found_range[1])
+			self._operator = "in"
+
+			# bail, done processing range
+			return
+
+		# coerce a raw number to an ==n operator
+		try:
+			int(matcher, 0)
+			self._operator = "=="
+			matcher = '==' + matcher
+		except:
+			pass
+
+		# order matters, check longest first!
+		if matcher.startswith("=="):
+			self._operator = "=="
+		elif matcher.startswith("<="):
+			self._operator = "<="
+		elif matcher.startswith(">="):
+			self._operator = ">="
+		elif matcher.startswith(">"):
+			self._operator = ">"
+		elif matcher.startswith("<"):
+			self._operator = "<"
+		else:
+			raise ValueError('Unknown operator in "%s"' % matcher)
+
+		n = matcher[len(self._operator):]
+		try:
+			self._value = int(n, 0)
+		except ValueError:
+			raise ValueError('Attempted operator "%s", but failed.'
+							'Expected a number, got: "%s",'
+							'perhaps invalid operator?'
+							'Use quotes, the shell steals'
+							% (self._operator, n))
+
+	def match(self, number):
+
+		number = number if isinstance(number, int) else int(number, 0)
+
+		# return some coerced match object
+		if self._operator == '<' and number < self._value:
+			return re.match(str(number), str(number))
+		elif self._operator == '<=' and number <= self._value:
+			return re.match(str(number), str(number))
+		elif self._operator == '==' and number == self._value:
+			return re.match(str(number), str(number))
+		elif self._operator == '>' and number > self._value:
+			return re.match(str(number), str(number))
+		elif self._operator == '>=' and number >= self._value:
+			return re.match(str(number), str(number))
+		elif self._operator == 'in' and number in self._value:
+			return re.match(str(number), str(number))
+
+		return None
+
+class RegexMatcher(object):
+
+	def __init__(self, r, lazy_regex):
+		if not lazy_regex:
+			# Greedify the search if not lazy
+			r = '.*' + r + '.*'
+
+		# Anchor the regex
+		r = '^' + r + '$'
+		self._matcher = re.compile(r)
+
+	def match(self, other):
+		return self._matcher.match(other)
+
 class Match(object):
 	def __init__(self, section, submatches):
 		self._section = section
@@ -172,7 +276,7 @@ class Section(object):
 						if not d:
 							continue
 
-						d = str(d).lower()
+					d = str(d).lower()
 
 					if lineno and l >= 0:
 						fmtout += str(l)
@@ -245,15 +349,16 @@ class Section(object):
 			found = 0
 			for r in rl:
 
+				matcher = None
 				if isinstance(r, bool):
 					r = str(r).lower()
-				elif not lazy_regex:
-					# Greedify the search if not lazy
-					r = '.*' + r + '.*'
 
-				# Anchor the regex
-				r = '^' + r + '$'
-				pattern = re.compile(r)
+				if isinstance(r, NumberMatcher):
+					matcher = r
+				elif isinstance(r, str):
+					matcher = RegexMatcher(r, lazy_regex)
+				else:
+					raise ValueError("Unknown matching type, got: %s!" % str(r.__class__.__name__))
 
 				# Normalize everything to list
 				# lists are presumed to be list of strings
@@ -262,18 +367,14 @@ class Section(object):
 				for x in m:
 					q = x
 
-					# args is weird since we dont append tuple
-					if not isinstance(x, tuple):
-						pass
-
 					q = str(q[0]).lower() if isinstance(q[0], bool) else q[0]
 
 					# Do not attempt to search on a key when the service has not set it
 					# and the default is '(None, -1)'
-					if not q:
+					if q == None:
 						continue
 
-					result = pattern.match(q)
+					result = matcher.match(q)
 
 					if result:
 						found = found + 1
@@ -343,6 +444,24 @@ class ServiceSection(Section):
 
 	_keywords = (Section._join
 	(
+		# This map is awful, I should have used explicit classes for the keywords.
+		# The format is as follows:
+		#   Either list or tuple:
+		#     Tuples are for items that should only appear once, like critical.
+		#     Lists are for items that can appear multiple times, like setenv.
+		#       Lists themselves contain tuples that adhere to the tuple idoim.
+		#
+		#   Tuple Idiom:
+		#     Tuples themselves contain a default and a line number:
+		#     (Default, -1)
+		#       The first value in the tuple, its type determines the behavior.
+		#         Strings are always searched and printed
+		#         Bools are ignored unless togled off the default
+		#       The second value is just for line numbers, -1 means not set.
+		#
+		# Because of the above designe description, handling this map is split into
+		# many many locations, such as _section_cmp() and format().
+		# XXX Fix this mess.
 		Section._keywords,
 		{
 			_KW_CONSOLE  : (False, -1),
@@ -360,7 +479,7 @@ class ServiceSection(Section):
 			_KW_ONRESTART: [],
 			_KW_WRITEPID : [],
 			_KW_KEYCODES : [],
-			_KW_PRIORITY : (None, -1),
+			_KW_PRIORITY : (0, -1),
 		}
 	))
 
@@ -389,6 +508,10 @@ class ServiceSection(Section):
 
 		elif isinstance(kw, bool):
 			self._option_map[keyword] = (True, lineno)
+
+		# bool MUST go before int becuase bool isinstance of int.
+		elif isinstance(kw, int):
+			self._option_map[keyword] = (int(args, 0), lineno)
 
 		elif isinstance(kw, list):
 			# clear out root on group if something else comes in.
@@ -792,6 +915,14 @@ class SearchCommand(object):
 						h = 'true if specified. Multiple specifications of the option result in the last option specified used.'
 						opts.append(('--' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store_const', 'const' : True, 'dest' : k }))
 						opts.append(('--not' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store_const', 'const' : False, 'dest' : k}))
+
+					elif isinstance(t, int):
+						h = ('argument is a valid int, equality expression(<x|<=x|==x|>=x|>x or integer range as a,b. Use quotes to deal with shells.'
+							'Multiple specifications of the option result in the last option specified used.')
+						class custom_action(argparse.Action):
+							def __call__(self, parser, args, values, option_string=None):
+								setattr(args, self.dest, NumberMatcher(values))
+						opts.append(('--' + k, { 'help' : 'Section: ' + k + '. ' + h, 'action' : custom_action }))
 
 					else:
 						opts.append(('--' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store', 'dest' : k }))

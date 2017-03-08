@@ -376,7 +376,7 @@ class ServiceSection(Section):
 		args = ' '.join(chunks[1:])
 
 		if keyword not in self._option_map:
-			raise Exception('Invalid service option: ' + keyword)
+			raise Exception('Invalid service option: "%s" on line: %d' % (keyword, lineno))
 
 		kw = self._option_map[keyword]
 		if isinstance(kw, tuple):
@@ -474,7 +474,10 @@ class InitParser(object):
 
 				# its not a valid section name but were parsing section options
 				elif current_section != None:
-					current_section.push(line, lineno)
+					try:
+						current_section.push(line, lineno)
+					except Exception as e:
+						raise type(e)(e.message + ' while parsing file "%s"' % path)
 
 				# clear line, repeat
 				line = ''

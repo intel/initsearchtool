@@ -6,8 +6,9 @@ import re
 import sys
 import xml.sax
 
+
 class NumberMatcher(object):
-	def __init__(self, matcher):
+	def __init__(self, matcher, lazy_regex):
 
 		# it can be a range
 		if ',' in matcher:
@@ -25,7 +26,7 @@ class NumberMatcher(object):
 
 			# if they are equal, coerce to ==n format
 			if found_range[0] == found_range[1]:
-				self._value = found_range[0]
+				self._values = found_range[0]
 				self._operator = "=="
 				# nothing more to do
 				return
@@ -38,7 +39,7 @@ class NumberMatcher(object):
 				found_range[1] = tmp
 
 			# set the range
-			self._value = range(found_range[0], found_range[1])
+			self._values = range(found_range[0], found_range[1])
 			self._operator = "in"
 
 			# bail, done processing range
@@ -68,7 +69,7 @@ class NumberMatcher(object):
 
 		n = matcher[len(self._operator):]
 		try:
-			self._value = int(n, 0)
+			self._values = int(n, 0)
 		except ValueError:
 			raise ValueError('Attempted operator "%s", but failed.'
 							'Expected a number, got: "%s",'
@@ -81,17 +82,17 @@ class NumberMatcher(object):
 		number = number if isinstance(number, int) else int(number, 0)
 
 		# return some coerced match object
-		if self._operator == '<' and number < self._value:
+		if self._operator == '<' and number < self._values:
 			return re.match(str(number), str(number))
-		elif self._operator == '<=' and number <= self._value:
+		elif self._operator == '<=' and number <= self._values:
 			return re.match(str(number), str(number))
-		elif self._operator == '==' and number == self._value:
+		elif self._operator == '==' and number == self._values:
 			return re.match(str(number), str(number))
-		elif self._operator == '>' and number > self._value:
+		elif self._operator == '>' and number > self._values:
 			return re.match(str(number), str(number))
-		elif self._operator == '>=' and number >= self._value:
+		elif self._operator == '>=' and number >= self._values:
 			return re.match(str(number), str(number))
-		elif self._operator == 'in' and number in self._value:
+		elif self._operator == 'in' and number in self._values:
 			return re.match(str(number), str(number))
 
 		return None
@@ -99,6 +100,10 @@ class NumberMatcher(object):
 class RegexMatcher(object):
 
 	def __init__(self, r, lazy_regex):
+
+		if isinstance(r, bool):
+			r = str(r).lower()
+
 		if not lazy_regex:
 			# Greedify the search if not lazy
 			r = '.*' + r + '.*'
@@ -128,7 +133,7 @@ class Match(object):
 		if self._section != other._section:
 			return False
 
-		#their must be a match for everything in other._submatches in self or
+		# their must be a match for everything in other._submatches in self or
 		# not equal
 		selfsubs = self._submatches
 		othersubs = other._submatches
@@ -144,7 +149,7 @@ class Match(object):
 		if not tidy:
 			s.write(filep=filep, lineno=lineno)
 		else:
-			filep.write(s.format(lineno=lineno, option_map=self._submatches))
+			filep.write(s.format(lineno=lineno, sub_matches=self._submatches))
 
 	def match(self, other):
 		return self._section.match(other, False)
@@ -186,11 +191,88 @@ class Match(object):
 		# False is returned.
 		return not bool(left)
 
+class SectionValue(object):
+	def __init__(self, value, lineno=-1):
+		self.value = value
+		self.lineno = lineno
+
+	def __str__(self):
+		return str(self.value).lower() if isinstance(self.value, bool) else self.value
+
+class SectionKeywordValues(object):
+	def __init__(self, keyword, default=None, is_appendable=False, is_default_printable=False, matcher=RegexMatcher):
+
+		self._keyword = keyword
+		self._is_appendable = is_appendable
+		self._is_set = False
+		self._is_default_printable = is_default_printable
+		self._default_type = type(default)
+		self._values = [ SectionValue(default) ] if default else []
+		self._matcher = matcher
+
+	def __len__(self):
+		return len(self._values)
+
+	def __str__(self):
+		return self._keyword
+
+	def push(self, value, lineno):
+
+		if not self._is_appendable and self._is_set:
+			raise Exception("Expected %s keyword to only appear once" % self._keyword)
+
+		# some items don't have values, like bool switches
+		if self._default_type == bool:
+			value = True
+
+		item = SectionValue(value, lineno)
+		if (self._is_appendable):
+			self._values.append(item)
+		else:
+			self._values = [ item ]
+
+		self._is_set = True
+
+	def reset(self):
+		self._values = []
+		self._is_set = False
+		return self
+
+	@property
+	def keyword(self):
+		return self._keyword
+
+	@property
+	def type(self):
+		return self._default_type
+
+	@property
+	def is_appendable(self):
+		return self._is_appendable
+
+	@property
+	def is_set(self):
+		return self._is_set
+
+	@property
+	def matcher(self):
+		return self._matcher
+
+	def is_printable(self):
+		return self._is_set or self._is_default_printable
+
+	@property
+	def values(self):
+		return self._values
+
+	def sort(self):
+		self._values.sort(key=lambda x: x.lineno)
+
 class Section(object):
 
 	_KW_ARGS = 'args'
 
-	_keywords = { _KW_ARGS : None }
+	_keywords = { _KW_ARGS : SectionKeywordValues(_KW_ARGS, is_appendable=True) }
 
 	def __init__(self, name, args, path, lineno, keywords=None):
 		self._name = name
@@ -204,89 +286,46 @@ class Section(object):
 		if keywords != None:
 			self._option_map.update(copy.deepcopy(keywords))
 
-		self._option_map[Section._KW_ARGS] = (args, -1)
-
-	def get_header(self):
-		n = self._name
-		p = self._path
-		l = str(self._lineno)
-		a = self._option_map[Section._KW_ARGS][0]
-		return n + '(' + p + ' : ' + l + '): ' + a
+		self._option_map[Section._KW_ARGS].push(args, lineno)
 
 	def write(self, filep=sys.stdout, lineno=False):
 		filep.write(self.format(lineno=lineno))
 
-	def _keysort(self, tup):
+	def get_header(self):
+		fmtout = self._path + ':\n'
+		fmtout += str(self._lineno) + ':\t' + self._name + ' '
+		fmtout += ' '.join([ x.value for x in self._option_map[Section._KW_ARGS].values ])
+		return fmtout
 
-		lst = tup[1]
-		if len(lst) == 0:
-			return -2
-		x = lst[0][1]
-		return x
-
-	def format(self, lineno=False, option_map=None):
+	def format(self, lineno=False, sub_matches=None):
 
 		fmtout = self.get_header() + '\n'
 
-		opt_map = self._option_map if not option_map else option_map
+		if sub_matches == None:
+			sub_matches = self._option_map
 
-		# convert dict of keyword : [ list of tuples ] to a line order sorted list
-		# of tuples (keyword, [(item, lineno), (item, lineno)])
+		# convert dict of keyword : [ SectionKeyWords ] to a line order sorted list
 		items = []
-		for k, v in opt_map.iteritems():
-			if k in self._no_print:
+		for skws in sub_matches.values():
+			if skws.keyword in self._no_print:
 				continue
 
-			# listify tuples (normalizes the data)
-			if isinstance(v, tuple):
-				v = [ v ]
-
-			# sort internal keyword list
-			v.sort(key=lambda tup: tup[1])
-			items.append((k, v))
-
-		# Now we sort based on the highest item in the keyword list
-		items.sort(key=self._keysort)
-
-		for (k, v) in items:
-
-			if k in self._no_print:
+			if not skws.is_printable():
 				continue
 
-			# Everything is a list of tupes, skip
-			# unset things
-			if len(v) == 0 or (len(v) == 1 and v[0][0] == None):
-				continue
+			items.extend([(skws.keyword, x) for x in skws.values])
 
-			strip = True if k in self._option_strip else False
-			k = None if strip else k
+		items.sort(key=lambda x: x[1].lineno)
 
-			# for tuple in list of tuples (tuples may have embedded lists as well)
-			for x in v:
-
-				l = x[1]
-				i = x[0]
-
-				if not isinstance(i, list):
-					i = [ i ]
-
-				for d in i:
-
-					if isinstance(d, bool):
-						if not d:
-							continue
-
-					d = str(d).lower()
-
-					if lineno and l >= 0:
-						fmtout += str(l)
-
-					fmtout += '\t'
-
-					if k:
-						fmtout += k + ' : '
-
-					fmtout += d + '\n'
+		for (key, section_val) in items:
+			if lineno:
+				fmtout += str(section_val.lineno) + ':'
+			fmtout += '\t\t'
+			is_bool = isinstance(section_val.value, bool)
+			fmtout += key
+			if not is_bool:
+				fmtout += ': ' + section_val.value
+			fmtout += '\n'
 
 		return fmtout
 
@@ -318,77 +357,57 @@ class Section(object):
 	def get_keymap():
 		return Section._keywords
 
-	def _section_cmp(self, dict2, lazy_regex):
-		dict1 = self._option_map
-		keys1 = set(dict1.keys())
-		keys2 = set(dict2.keys())
+	def _section_cmp(self, search_dict, lazy_regex):
+
+		section_options = self._option_map
+		section_keys = section_options.keys()
+		search_keys = set(search_dict.keys())
 
 		submatches = {}
 
-		# dict1 doesn't contain the _items in dict2,
-		# dict1 is less than dict2
-		if keys1 < keys2:
-			return -1
+		# For each key in the section map (ie things I am searching)
+		# and the search dictionary
+		# ...
+		for search_key, search_values in search_dict.iteritems():
+			section_keyword_values = section_options[search_key]
 
-		# Their are either equal or their is more
-		# keys in dict1 than dict2, now we check elements
-		for k in dict2:
-			r = dict2[k]
-			m = dict1[k]
+			matcher_class = section_keyword_values.matcher
+			section_vals = section_keyword_values.values
 
 			# empty fields are a no-match situation
-			if m == None:
+			if len(section_vals) == 0:
 				return (-1, submatches)
 
-			# Normalize bools to lower case strings
-			m = str(m).lower() if isinstance(m, bool) else m
-
-			# Normalize search set arguments to a list
-			rl = r if isinstance(r, list) else [ r ]
+			# Search values is allowed to be a string or list of string, normalize
+			if not isinstance(search_values, list):
+				search_values = [ search_values ]
 
 			found = 0
-			for r in rl:
+			for section_val in section_vals:
 
-				matcher = None
-				if isinstance(r, bool):
-					r = str(r).lower()
+				section_val_str = str(section_val)
 
-				if isinstance(r, NumberMatcher):
-					matcher = r
-				elif isinstance(r, str):
-					matcher = RegexMatcher(r, lazy_regex)
-				else:
-					raise ValueError("Unknown matching type, got: %s!" % str(r.__class__.__name__))
+				for search_term in search_values:
 
-				# Normalize everything to list
-				# lists are presumed to be list of strings
-				m = m if isinstance(m, list) else [ m ]
+					matcher = matcher_class(search_term, lazy_regex)
 
-				for x in m:
-					q = x
-
-					q = str(q[0]).lower() if isinstance(q[0], bool) else q[0]
-
-					# Do not attempt to search on a key when the service has not set it
-					# and the default is '(None, -1)'
-					if q == None:
-						continue
-
-					result = matcher.match(q)
-
+					result = matcher.match(section_val_str)
 					if result:
 						found = found + 1
-						if k not in submatches:
-							submatches[k] = []
-						submatches[k].append(x)
+						if search_key not in submatches:
+							x = copy.deepcopy(section_keyword_values)
+							submatches[search_key] = x.reset()
+						submatches[search_key].push(section_val.value, section_val.lineno)
 
-			if found < len(rl):
+			# If i didn't find as many items as I was looking for
+			# it's not a match
+			if found < len(search_values):
 				# no match
 				return (-1, submatches)
 
-		# If dict1 had more keys, then its a super set
-		# of dict2, else equal
-		x = 0 if len(keys1) == len(keys2) else 1
+		# If section map had more keys, then its a super set
+		# of search dictionary, else equal
+		x = 0 if len(section_keys) == len(search_keys) else 1
 		x = (x, submatches)
 		return x
 
@@ -404,7 +423,7 @@ class OnSection(Section):
 
 	_keywords = Section._join(
 			Section._keywords,
-			{ _KW_COMMAND : [] })
+			{ _KW_COMMAND : SectionKeywordValues(_KW_COMMAND, is_appendable=True) })
 
 	def __init__(self, *args, **kwargs):
 		kwargs = dict(kwargs)
@@ -413,7 +432,7 @@ class OnSection(Section):
 		self._option_strip.append(OnSection._KW_COMMAND)
 
 	def push(self, line, lineno):
-		self._option_map[OnSection._KW_COMMAND].append((line, lineno))
+		self._option_map[OnSection._KW_COMMAND].push(line, lineno)
 
 	@staticmethod
 	def get_keywords():
@@ -441,45 +460,47 @@ class ServiceSection(Section):
 	_KW_WRITEPID = 'writepid'
 	_KW_KEYCODES = 'keycodes'
 	_KW_PRIORITY = 'priority'
+	_KW_START = 'start'
 
 	_keywords = (Section._join
 	(
 		# This map is awful, I should have used explicit classes for the keywords.
 		# The format is as follows:
 		#   Either list or tuple:
-		#     Tuples are for items that should only appear once, like critical.
-		#     Lists are for items that can appear multiple times, like setenv.
-		#       Lists themselves contain tuples that adhere to the tuple idoim.
+		# 	 Tuples are for items that should only appear once, like critical.
+		# 	 Lists are for items that can appear multiple times, like setenv.
+		# 	   Lists themselves contain tuples that adhere to the tuple idoim.
 		#
 		#   Tuple Idiom:
-		#     Tuples themselves contain a default and a line number:
-		#     (Default, -1)
-		#       The first value in the tuple, its type determines the behavior.
-		#         Strings are always searched and printed
-		#         Bools are ignored unless togled off the default
-		#       The second value is just for line numbers, -1 means not set.
+		# 	 Tuples themselves contain a default and a line number:
+		# 	 (Default, -1)
+		# 	   The first value in the tuple, its type determines the behavior.
+		# 		 Strings are always searched and printed
+		# 		 Bools are ignored unless togled off the default
+		# 	   The second value is just for line numbers, -1 means not set.
 		#
 		# Because of the above designe description, handling this map is split into
 		# many many locations, such as _section_cmp() and format().
 		# XXX Fix this mess.
 		Section._keywords,
 		{
-			_KW_CONSOLE  : (False, -1),
-			_KW_CRITICAL : (False, -1),
-			_KW_DISABLED : (False, -1),
-			_KW_SET_ENV  : [],
-			_KW_GET_ENV  : [],
-			_KW_SOCKET   : [],
-			_KW_USER     : ('root', -1),
-			_KW_GROUP	 : [ ('root', -1) ],
-			_KW_SECLABEL : (None, -1),
-			_KW_ONESHOT  : (False, -1),
-			_KW_CLASS	 : ('default', -1),
-			_KW_IOPRIO   : (None, -1),
-			_KW_ONRESTART: [],
-			_KW_WRITEPID : [],
-			_KW_KEYCODES : [],
-			_KW_PRIORITY : (0, -1),
+			_KW_CONSOLE  : SectionKeywordValues(_KW_CONSOLE, default=False),
+			_KW_CRITICAL : SectionKeywordValues(_KW_CRITICAL, default=False),
+			_KW_DISABLED : SectionKeywordValues(_KW_DISABLED, default=False),
+			_KW_SET_ENV  : SectionKeywordValues(_KW_SET_ENV, is_appendable=True),
+			_KW_GET_ENV  : SectionKeywordValues(_KW_GET_ENV, is_appendable=True),
+			_KW_SOCKET   : SectionKeywordValues(_KW_SOCKET, is_appendable=True),
+			_KW_USER	 : SectionKeywordValues(_KW_USER, default='root'),
+			_KW_GROUP	 : SectionKeywordValues(_KW_GROUP, default='root'),
+			_KW_SECLABEL : SectionKeywordValues(_KW_SECLABEL),
+			_KW_ONESHOT  : SectionKeywordValues(_KW_ONESHOT, default=False),
+			_KW_CLASS	 : SectionKeywordValues(_KW_CLASS, default='default'),
+			_KW_IOPRIO   : SectionKeywordValues(_KW_IOPRIO),
+			_KW_ONRESTART: SectionKeywordValues(_KW_ONRESTART, is_appendable=True),
+			_KW_WRITEPID : SectionKeywordValues(_KW_WRITEPID, is_appendable=True),
+			_KW_KEYCODES : SectionKeywordValues(_KW_KEYCODES, is_appendable=True),
+			_KW_PRIORITY : SectionKeywordValues(_KW_PRIORITY, default=0, matcher=NumberMatcher),
+			_KW_START	: SectionKeywordValues(_KW_START),
 		}
 	))
 
@@ -497,34 +518,10 @@ class ServiceSection(Section):
 		args = ' '.join(chunks[1:])
 
 		if keyword not in self._option_map:
-			raise Exception('Invalid service option: "%s" on line: %d' % (keyword, lineno))
+			sys.exit('Invalid service option: "%s" on line: %d' % (keyword, lineno))
 
 		kw = self._option_map[keyword]
-		if isinstance(kw, tuple):
-			kw = kw[0]
-
-		if kw == None or isinstance(kw, str):
-			self._option_map[keyword] = (args, lineno)
-
-		elif isinstance(kw, bool):
-			self._option_map[keyword] = (True, lineno)
-
-		# bool MUST go before int becuase bool isinstance of int.
-		elif isinstance(kw, int):
-			self._option_map[keyword] = (int(args, 0), lineno)
-
-		elif isinstance(kw, list):
-			# clear out root on group if something else comes in.
-			a = keyword == 'group'
-			b = len(kw) == 1
-			if not self._group_cleared and a and b and kw[0][0] == 'root':
-				kw = self._option_map[keyword] = []
-				self._group_cleared = True
-
-			kw.append((args, lineno))
-
-		else:
-			raise Exception('Unknown instance type: ' + kw)
+		kw.push(args, lineno)
 
 	@staticmethod
 	def get_keywords():
@@ -602,7 +599,7 @@ class InitParser(object):
 					try:
 						current_section.push(line, lineno)
 					except Exception as e:
-						raise type(e)(e.message + ' while parsing file "%s"' % path)
+						raise type(e)(e.message + ' while parsing file "%s on line %d"' % (path, lineno))
 
 				# clear line, repeat
 				line = ''
@@ -681,7 +678,7 @@ class Test(object):
 		self._current = None
 
 	def end_exception(self):
-		#self._current['section'] = self._section
+		# self._current['section'] = self._section
 		self._exceptions.append(self._current)
 		self._current = None
 
@@ -894,38 +891,40 @@ class SearchCommand(object):
 		opts.append(('--lazy', { 'action' : 'store_true', 'help' : 'The default is a greedy search, set this to force lazy searches.'}))
 		opts.append(('--tidy', { 'action' : 'store_true', 'help' : 'Set this flag to only print matching keywords for the section'}))
 		opts.append(('--lineno', { 'action' : 'store_true', 'help' : 'Print line numbers on matches'}))
-		opts.append(('--count',  { 'action' : 'store_true', 'help' : 'Print the number of matches'}))
+		opts.append(('--count', { 'action' : 'store_true', 'help' : 'Print the number of matches'}))
 
 		seen = {}
 		for n in sections:
 			s = sections[n]
-			for k, t in s.get_keymap().iteritems():
-				if k not in seen:
-					seen[k] = True
+			for section_key_words in s.get_keymap().values():
+				if section_key_words not in seen:
+					seen[section_key_words] = True
 
-					h = 'argument is a valid regex. Multiple specifications of the option result in the last option specified used.'
-					if isinstance(t, tuple):
-						t = t[0]
+					key_word = str(section_key_words)
+					is_appendable = section_key_words.is_appendable
+					istype = section_key_words.type
 
-					if isinstance(t, list):
+					if is_appendable:
 						h = 'argument is a valid regex. Multiple specifications of the option result in the logical and of all specified options.'
-						opts.append(('--' + k, { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'append' }))
-
-					elif isinstance(t, bool):
-						h = 'true if specified. Multiple specifications of the option result in the last option specified used.'
-						opts.append(('--' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store_const', 'const' : True, 'dest' : k }))
-						opts.append(('--not' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store_const', 'const' : False, 'dest' : k}))
-
-					elif isinstance(t, int):
-						h = ('argument is a valid int, equality expression(<x|<=x|==x|>=x|>x or integer range as a,b. Use quotes to deal with shells.'
-							'Multiple specifications of the option result in the last option specified used.')
 						class custom_action(argparse.Action):
 							def __call__(self, parser, args, values, option_string=None):
-								setattr(args, self.dest, NumberMatcher(values))
-						opts.append(('--' + k, { 'help' : 'Section: ' + k + '. ' + h, 'action' : custom_action }))
+								getattr(args, self.dest)
+								setattr(args, self.dest, RegexMatcher(values))
+						opts.append(('--' + key_word, { 'help' : 'Section: ' + key_word + '. ' + h, 'action' : 'append' }))
+
+					elif istype is bool:
+						h = 'true if specified. Multiple specifications of the option result in the last option specified used.'
+						opts.append(('--' + key_word , { 'help' : 'Section: ' + key_word + '. ' + h, 'action' : 'store_const', 'const' : True, 'dest' : key_word }))
+						opts.append(('--not' + key_word , { 'help' : 'Section: ' + key_word + '. ' + h, 'action' : 'store_const', 'const' : False, 'dest' : key_word}))
+
+					elif istype is int:
+						h = ('argument is a valid int, equality expression(<x|<=x|==x|>=x|>x or integer range as a,b. Use quotes to deal with shells.'
+							'Multiple specifications of the option result in the last option specified used.')
+						opts.append(('--' + key_word, { 'help' : 'Section: ' + key_word + '. ' + h, 'action' : 'store' }))
 
 					else:
-						opts.append(('--' + k , { 'help' : 'Section: ' + k + '. ' + h, 'action' : 'store', 'dest' : k }))
+						h = 'argument is a valid regex. Multiple specifications of the option result in the last option specified used.'
+						opts.append(('--' + key_word , { 'help' : 'Section: ' + key_word + '. ' + h, 'action' : 'store', 'dest' : key_word }))
 
 		self._opts = opts
 		return opts
@@ -980,7 +979,7 @@ class VerifyCommand(object):
 	@staticmethod
 	def _gen(failed_tests):
 
-		kws = "    <keyword %s ='%s' />\n"
+		kws = "	<keyword %s ='%s' />\n"
 
 		for t in failed_tests:
 			sys.stderr.write('Failed test(' + t.getName() + '):\n')
@@ -989,11 +988,12 @@ class VerifyCommand(object):
 				# We print args + keyword hoping to avoid duplicate matches, but perhaps its best
 				# to print the whole section here.
 				sys.stderr.write('  <except>\n')
-				sys.stderr.write(kws % ('args', violator.get_section().get_args()[0]))
+				x = violator.get_section().get_args()
+				sys.stderr.write(kws % (str(x), x.values[0].value))
 
 				for k, v in violator.get_sub_matches().iteritems():
-					for x in v:
-						sys.stderr.write(kws %(k, x[0]))
+					for x in v.values:
+						sys.stderr.write(kws % (k, x.value))
 
 				sys.stderr.write('  </except>\n')
 	@staticmethod
@@ -1003,9 +1003,9 @@ class VerifyCommand(object):
 			for match in t.get_violators():
 				submatches = match.get_sub_matches()
 				sys.stderr.write(match.get_section().get_header() + '\n')
-				for k,v in submatches.iteritems():
-					for x in v:
-						sys.stderr.write('\t' + k + '(' + str(x[1]) + ') : ' + x[0])
+				for k, section_keyword_values in submatches.iteritems():
+					for line_value in section_keyword_values.values:
+						sys.stderr.write('\t\t' + k + '(' + str(line_value.lineno) + ') : ' + line_value.value)
 						sys.stderr.write('\n')
 
 	def _violations_search(self, search_args, exception_args):
@@ -1032,7 +1032,7 @@ class VerifyCommand(object):
 	def filter(self, exception_args, found):
 
 		for e in exception_args:
-			m =found.match(e)
+			m = found.match(e)
 			if m:
 				return found.filter(m)
 

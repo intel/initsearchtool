@@ -1,4 +1,14 @@
 #!/usr/bin/env python
+"""This tool allows for the searching and verification of Android init.rc scripts.
+
+The tool internally consists of a plug-in commandlet system.
+
+Run the help for a list of supported plugins and their capabilities.
+
+Further documentation can be found in the README.
+"""
+
+#pylint: disable=too-many-lines
 
 import argparse
 import copy
@@ -7,53 +17,57 @@ import sys
 import xml.sax
 
 
+# pylint: disable=too-few-public-methods
 class NumberMatcher(object):
+    '''NumberMatchers are used when building a number search string option
+    from the command line. This is used when you want to search
+    for things like, "find all services with priorities greater than
+    -20. Regex searches suck for this.
 
+    Supported matcher strings are:
+      literal : number eg: "-20"
+                Literal is the same as an equality search.
+      equality operator:
+        equality: "==<number>" eg: "==-20".
+        not equal: "!=<number>" eg: "!=-20".
+        less than: "<<number>" eg: "<-20".
+        less than or equal to: "<=<number>" eg: "<=-20".
+        greater than: "><number>" eg: ">-20".
+        greater than or equal to: ">=<number>" eg: ">=-20".
+
+    Args:
+        matcher (str): A match pattern search string.
+        lazy_regex (bool): unused, required for interface.
+
+    Example:
+        n = NumberMatcher("<=4", False)
+        n.match(1) : SubMatches()
+        n.match(4) : SubMatches()
+        n.match(5) : None
+
+        Where SubMatches() objects mean it was a match.
+    '''
+
+    # This has to fit an interface, so we pass lazy_regex
+    # even though it is unused. Also, too many branches
+    # complaint is a bit much here...
+    # pylint: disable=unused-argument,too-many-branches
     def __init__(self, matcher, lazy_regex):
 
         # it can be a range
         if ',' in matcher:
-            x = matcher.split(',')
-            if len(x) != 2:
-                raise ValueError('Expected valid range x,b no spaces, got: "%s"'
-                                 % matcher)
+            self._handle_range(matcher)
+        else:
+            self._handle_operator(matcher)
 
-            found_range = []
-            for n in x:
-                try:
-                    n = int(n, 0)
-                    found_range.append(n)
-                except ValueError:
-                    raise ValueError(
-                        'Expected range number to be a number, got: "%s"' % n)
-
-            # if they are equal, coerce to ==n format
-            if found_range[0] == found_range[1]:
-                self._values = found_range[0]
-                self._operator = "=="
-                # nothing more to do
-                return
-
-            # range(a, b) expects a < b or returns empty range
-            # thus sort so a < b
-            if found_range[1] < found_range[0]:
-                tmp = found_range[0]
-                found_range[0] = found_range[1]
-                found_range[1] = tmp
-
-            # set the range
-            self._values = range(found_range[0], found_range[1])
-            self._operator = "in"
-
-            # bail, done processing range
-            return
+    def _handle_operator(self, matcher):
 
         # coerce a raw number to an ==n operator
         try:
             int(matcher, 0)
             self._operator = "=="
             matcher = '==' + matcher
-        except:
+        except ValueError:
             pass
 
         # order matters, check longest first!
@@ -70,71 +84,158 @@ class NumberMatcher(object):
         else:
             raise ValueError('Unknown operator in "%s"' % matcher)
 
-        n = matcher[len(self._operator):]
+        number = matcher[len(self._operator):]
         try:
-            self._values = int(n, 0)
+            self._values = int(number, 0)
         except ValueError:
-            raise ValueError('Attempted operator "%s", but failed.'
-                             'Expected a number, got: "%s",'
-                             'perhaps invalid operator?'
-                             'Use quotes, the shell steals' %
-                             (self._operator, n))
+            sys.exit('Attempted operator "%s", but failed.'
+                     'Expected a number, got: "%s",'
+                     'perhaps invalid operator?'
+                     'Use quotes, the shell steals' % (self._operator, number))
+
+    def _handle_range(self, matcher):
+
+        chunks = matcher.split(',')
+        if len(chunks) != 2:
+            sys.exit('Expected valid range x,b no spaces, got: "%s"' % matcher)
+
+        found_range = []
+        for item in chunks:
+            try:
+                found_range.append(int(item, 0))
+            except ValueError:
+                sys.exit('Expected range number to be a number, got: "%s"' %
+                         item)
+
+        # if they are equal, coerce to ==n format
+        if found_range[0] == found_range[1]:
+            self._values = found_range[0]
+            self._operator = "=="
+            # nothing more to do
+            return
+
+        # range(a, b) expects a < b or returns empty range
+        # thus sort so a < b
+        if found_range[1] < found_range[0]:
+            tmp = found_range[0]
+            found_range[0] = found_range[1]
+            found_range[1] = tmp
+
+        # set the range
+        self._values = range(found_range[0], found_range[1])
+        self._operator = "in"
 
     def match(self, number):
+        """Matches a number based on the initialized search option.
 
+        Args:
+            number (str|int): The number to compare to.
+            if it is a str, it is converted to an int internall via int(number, 0)
+
+        Returns:
+            A MatchObject like re.match().
+        """
         number = number if isinstance(number, int) else int(number, 0)
+
+        match = None
 
         # return some coerced match object
         if self._operator == '<' and number < self._values:
-            return re.match(str(number), str(number))
+            match = re.match(str(number), str(number))
         elif self._operator == '<=' and number <= self._values:
-            return re.match(str(number), str(number))
+            match = re.match(str(number), str(number))
         elif self._operator == '==' and number == self._values:
-            return re.match(str(number), str(number))
+            match = re.match(str(number), str(number))
         elif self._operator == '>' and number > self._values:
-            return re.match(str(number), str(number))
+            match = re.match(str(number), str(number))
         elif self._operator == '>=' and number >= self._values:
-            return re.match(str(number), str(number))
+            match = re.match(str(number), str(number))
         elif self._operator == 'in' and number in self._values:
-            return re.match(str(number), str(number))
+            match = re.match(str(number), str(number))
 
-        return None
+        return match
 
 
+# pylint: disable=too-few-public-methods
 class RegexMatcher(object):
+    '''RegexMatchers are used when building a matcher that
+    is to be used for regex searches.
 
-    def __init__(self, r, lazy_regex):
+    Args:
+        regex_str (str): A match pattern search string.
+        lazy_regex (bool): Whether or not the search is lazy.
+          See for more info: https://goo.gl/rNvUma
 
-        if isinstance(r, bool):
-            r = str(r).lower()
+    Example:
+        n = RegexMatcher("foo", False)
+        n.match("foo bar) : SubMatches()
+        n.match("bar") : None
+
+        n = RegexMatcher("foo", True)
+        n.match("foo bar) : None
+        n.match("bar") : None
+
+        Where SubMatches() objects mean it was a match.
+    '''
+
+    def __init__(self, regex_str, lazy_regex):
+
+        if isinstance(regex_str, bool):
+            regex_str = str(regex_str).lower()
 
         if not lazy_regex:
             # Greedify the search if not lazy
-            r = '.*' + r + '.*'
+            regex_str = '.*' + regex_str + '.*'
 
         # Anchor the regex
-        r = '^' + r + '$'
-        self._matcher = re.compile(r)
+        regex_str = '^' + regex_str + '$'
+        self._matcher = re.compile(regex_str)
 
     def match(self, other):
+        """Matches a string based on the initialized search regex.
+
+        Args:
+            number (str): The string to compare.
+
+        Returns:
+            A MatchObject like re.match().
+        """
         return self._matcher.match(other)
 
 
-class Match(object):
+class SubMatches(object):
+    '''SubMatches is a container class that keeps
+    the section submatches grouped together.
+    '''
 
     def __init__(self, section, submatches):
         self._section = section
         self._submatches = submatches
 
-    def get_sub_matches(self):
+    @property
+    def submatches(self):
+        '''The submatches for a section.
+
+        Returns
+         The submatches
+        '''
         return self._submatches
 
-    def get_section(self):
+    @property
+    def section(self):
+        '''The section name.
+
+        Returns
+         The section name
+        '''
         return self._section
 
     def __hash__(self):
         return hash(self._section)
 
+    # equality operators need access to internal fields
+    # by design.
+    # pylint: disable=protected-access
     def __eq__(self, other):
         if self._section != other._section:
             return False
@@ -143,28 +244,46 @@ class Match(object):
         # not equal
         selfsubs = self._submatches
         othersubs = other._submatches
-        for os in othersubs:
-            if os not in selfsubs:
+        for othersub in othersubs:
+            if othersub not in selfsubs:
                 return False
 
         return True
 
     def write(self, filep=sys.stdout, lineno=False, tidy=False):
+        '''Writes a match to a file.
 
-        s = self.get_section()
+        Args:
+            filep(file): The file to write to, defaults to stdout.
+            lineno(bool): True to print line numbers, false to not. Default is false.
+            tidy(bool): False to print the whole section on a match, True to print just the
+                        matching parts of the service. Default is False.
+        '''
+        section = self.section
         if not tidy:
-            s.write(filep=filep, lineno=lineno)
+            section.write(filep=filep, lineno=lineno)
         else:
-            filep.write(s.format(lineno=lineno, sub_matches=self._submatches))
+            filep.write(
+                section.format(
+                    lineno=lineno, sub_matches=self._submatches))
 
     def match(self, other):
+        '''Match on another match object by calling the sections _match() routine.
+
+        Returns:
+            A SubMatches object on a match or None if not matches.
+        '''
         return self._section.match(other, False)
 
     def filter(self, match):
+        '''Filter out arguments that were not matched.
 
+        Returns:
+            True if it was filtered out or False otherwise.
+        '''
         left = {}
         subs = self._submatches
-        fltr = match.get_sub_matches()
+        fltr = match.submatches
         # The filter might contain arguments that were not matched, ie the search might
         # have been on socket (so sub_matches is only socket_ but the filter might include
         # args. We only filter on what the intersection between the two are.
@@ -172,24 +291,24 @@ class Match(object):
         sub_keys = set(subs.keys())
         keys = fltr_keys & sub_keys
 
-        # Search each key value in the filter (white list exception)
-        for k in keys:
-            v = fltr[k]
+        # Search each key values in the filter (white list exception)
+        for key in keys:
+            values = fltr[key]
 
-            # Keep a copy of the list associated with the k, we remove the
+            # Keep a copy of the list associated with the key, we remove the
             # items from the list when a filter matches
-            s = list(subs[k])
+            sub = list(subs[key])
 
             # For each line in the exceptions filter, we compile it
             # as a possible regex and search the sub_matches with it.
-            for x in v:
+            for value in values:
                 # If we find a match we remove it from the copy of sub_matches
-                if x in subs[k]:
-                    s.remove(x)
+                if value in subs[key]:
+                    sub.remove(value)
 
             # If anything is left in the list of things, we add it as 'left', ie the delta
-            if len(s) > 0:
-                left[k] = s
+            if len(sub) > 0:
+                left[key] = sub
 
         self._submatches = left
 
@@ -199,6 +318,7 @@ class Match(object):
 
 
 class SectionValue(object):
+    '''Container class for storing a keywords value and line number found.'''
 
     def __init__(self, value, lineno=-1):
         self.value = value
@@ -210,7 +330,38 @@ class SectionValue(object):
 
 
 class SectionKeywordValues(object):
+    '''An object of this class is a section keyword item with its corresponding values
 
+    service foo bar
+        oneshot        <- this is a SectionKeywordValues
+        onrestart foo  <- this is a SectionKeywordValues
+        onrestart boo  <-|
+        onrestart coo  <-|
+
+
+    After parsing this:
+        SecionKeywordValues for oneshot would be a list: [ SectionValue(True, 2) ]
+        SecionKeywordValues for onrestart would be a list:
+            [ SectionValue(foo, 3), SectionValue(boo, 4), SectionValue(coo, 5) ]
+
+    There are numerous attributes to used when setting this up that affect things
+    like print behavior.
+
+    Args:
+        keyword(str) : The keyword, like oneshot.
+        default(type) : What is the default type, you can pass things like str, None or int
+          This is used to indicate the expected type, and what the value is. For instance,
+          the service keyword "user" uses the value "root" for this.
+        is_appendable(bool): Is this expected to have one keyword per section, or multiple?
+        is_default_printable(bool): Should a default value be printed in output?
+        matcher: What matcher should be used to compare it with found text? The default is
+          RegexMatcher, but anything implementing that interface can be passed.
+
+    Example:
+        SectionKeywordValues("user", default='root')
+    '''
+
+    # pylint: disable=too-many-arguments
     def __init__(self,
                  keyword,
                  default=None,
@@ -233,7 +384,12 @@ class SectionKeywordValues(object):
         return self._keyword
 
     def push(self, value, lineno):
-
+        '''Adds a value and line number to a keyword.
+        Args:
+            value(str): The value to append, can be anything for type bool, as push
+              is a implicit "True" for value.
+        lineno (int): The line number the value for the keyword was found on.
+        '''
         if not self._is_appendable and self._is_set:
             raise Exception("Expected %s keyword to only appear once" %
                             self._keyword)
@@ -243,7 +399,7 @@ class SectionKeywordValues(object):
             value = True
 
         item = SectionValue(value, lineno)
-        if (self._is_appendable):
+        if self._is_appendable:
             self._values.append(item)
         else:
             self._values = [item]
@@ -251,47 +407,66 @@ class SectionKeywordValues(object):
         self._is_set = True
 
     def reset(self):
+        '''Reset's a Section to it's initialized state'''
         self._values = []
         self._is_set = False
         return self
 
     @property
     def keyword(self):
+        '''The keyword (str) associated with the section'''
         return self._keyword
 
     @property
     def type(self):
+        '''The type (type) associated with the section'''
         return self._default_type
 
     @property
     def is_appendable(self):
+        '''Whether or not a keyword is appendable. An appendable keyword is one that is expected
+        multiple times in a section. For instance, the onrestart keyword for a Service can appear
+        multiple times and thus is appendable.'''
         return self._is_appendable
 
     @property
     def is_set(self):
+        '''Whether or not it's been set or is still on a default value'''
         return self._is_set
 
     @property
     def matcher(self):
+        '''The matcher registered for the keyword.'''
         return self._matcher
 
     def is_printable(self):
+        '''Whether or not the value should be printed.
+        A value should be printed if it has been set off
+        of the default or the default value is printable.
+
+        Return:
+          True if printable, False otherwise.
+        '''
         return self._is_set or self._is_default_printable
 
     @property
     def values(self):
-        return self._values
+        '''The value list of SectionValue objects.
 
-    def sort(self):
-        self._values.sort(key=lambda x: x.lineno)
+        Returns:
+            A list of SectionValue objects: [ SectionValue, ... ]
+        '''
+
+        return self._values
 
 
 class Section(object):
-
+    '''Base class for all Sections. An init sections are things like service and on keywords.'''
     _KW_ARGS = 'args'
 
     _keywords = {_KW_ARGS: SectionKeywordValues(_KW_ARGS, is_appendable=True)}
 
+    # pylint: disable=too-many-arguments
     def __init__(self, name, args, path, lineno, keywords=None):
         self._name = name
         self._lineno = lineno
@@ -307,9 +482,21 @@ class Section(object):
         self._option_map[Section._KW_ARGS].push(args, lineno)
 
     def write(self, filep=sys.stdout, lineno=False):
+        '''Writes a formated version of itself to a file.
+        Just calls Format and writes to the file.
+
+        Args:
+            filep (file): the file to write to. Defaults to stdout.
+            lineno (bool): True to print line numbers, False not to. Defaults to False.
+        '''
         filep.write(self.format(lineno=lineno))
 
     def get_header(self):
+        '''Retrieves a formated version known as the header. A section header
+
+        Returns:
+            A a formated header as a str.
+        '''
         fmtout = self._path + ':\n'
         fmtout += str(self._lineno) + ':\t' + self._name + ' '
         fmtout += ' '.join(
@@ -317,10 +504,18 @@ class Section(object):
         return fmtout
 
     def format(self, lineno=False, sub_matches=None):
+        '''Formats a section header.
 
+        Args:
+            lineno (bool): True to include line numbers, false otherwise. Defaults to false.
+            sub_matches ({ keyword (str) : [ SectionKeyWords ] }): The dictionary of submatches.
+
+        Returns:
+            A formated str.
+        '''
         fmtout = self.get_header() + '\n'
 
-        if sub_matches == None:
+        if sub_matches is None:
             sub_matches = self._option_map
 
         # convert dict of keyword : [ SectionKeyWords ] to a line order sorted list
@@ -349,33 +544,78 @@ class Section(object):
         return fmtout
 
     def match(self, other, lazy_regex):
+        '''Matches one section to another.
 
-        (x, s) = self._section_cmp(other, lazy_regex)
-        if x >= 0:
-            return Match(self, s)
+        Args:
+            other (Section): The other section to match to.
+            lazy_regex: True if the regex's should be lazy, False for greedy regex's.
+
+        Returns:
+            A SubMatches object on a match or None on no match.
+        '''
+        (comparator, submatches) = self._section_cmp(other, lazy_regex)
+        if comparator >= 0:
+            return SubMatches(self, submatches)
         else:
             return None
 
-    def get_name(self):
+    @property
+    def name(self):
+        '''A section name, as a str, like "service" or "on". This is really just a keyword, but
+        a keyword for a whole section, not just a section item.'''
         return self._name
 
-    def get_args(self):
-        return self._option_map[Section._KW_ARGS]
-
-    def get_lineno(self):
+    @property
+    def lineno(self):
+        '''The line number, as an int, that the section started on.'''
         return self._lineno
 
-    def push(self, line):
-        raise Exception('Implement me!')
+    def get_args(self):
+        '''The argument values for the section name as a list of SectionKeywordValues'''
+        return self._option_map[Section._KW_ARGS]
+
+    # pylint: disable=unused-argument,no-self-use
+    def push(self, value, lineo):
+        '''Implement me if you subclass me.
+        I add a value to the SectionKeywordValues internal object. Doing any formatting
+        and error detection along the way.
+
+        Raises:
+            NotImplementedError: You must subclass this class for push.
+        '''
+        raise NotImplementedError('Implement: push(value, lineno)')
 
     @staticmethod
     def get_keywords():
+        '''Retrieves the list of keywords for this section. This is not the section name, but rather
+        the keyword options valid for a section. For instance, for service, user is a valid keyword
+        option.
+
+        Returns:
+            The keywords as a list of strings: [ str, ... ]
+            Eg.) [ "user", "group", "onrestart", ... ]
+        '''
+
         return Section.get_keymap().keys()
 
     @staticmethod
     def get_keymap():
+        '''Returns the keymap of a section. The keymap is the major data structure, it is defined
+        as follows:
+
+        { "keyword" : SectionKeyWordValues }
+
+        The keymap is static and deep copied on initialization of a Section. Be careful when using
+        this structure.
+
+        Returns:
+            The section keymap.
+        '''
         return Section._keywords
 
+    # This is one of the most complicated routines, lots of locals
+    # increased readability.
+    # pylint: disable=too-many-locals
     def _section_cmp(self, search_dict, lazy_regex):
 
         section_options = self._option_map
@@ -414,8 +654,8 @@ class Section(object):
                     if result:
                         found = found + 1
                         if search_key not in submatches:
-                            x = copy.deepcopy(section_keyword_values)
-                            submatches[search_key] = x.reset()
+                            submatches[search_key] = copy.deepcopy(
+                                section_keyword_values).reset()
                         submatches[search_key].push(section_val.value,
                                                     section_val.lineno)
 
@@ -427,18 +667,19 @@ class Section(object):
 
         # If section map had more keys, then its a super set
         # of search dictionary, else equal
-        x = 0 if len(section_keys) == len(search_keys) else 1
-        x = (x, submatches)
-        return x
+        comparator = 0 if len(section_keys) == len(search_keys) else 1
+        comparator = (comparator, submatches)
+        return comparator
 
     @staticmethod
     def _join(parent, self):
-        x = dict(parent)
-        x.update(self)
-        return x
+        new_dict = dict(parent)
+        new_dict.update(self)
+        return new_dict
 
 
 class OnSection(Section):
+    '''The on section in init.rc files. A subclass of Section.'''
 
     _KW_COMMAND = 'command'
 
@@ -466,6 +707,7 @@ class OnSection(Section):
 
 
 class ServiceSection(Section):
+    '''The service section in init.rc files. A subclass of Section.'''
 
     _KW_CONSOLE = 'console'
     _KW_CRITICAL = 'critical'
@@ -485,60 +727,40 @@ class ServiceSection(Section):
     _KW_PRIORITY = 'priority'
     _KW_START = 'start'
 
-    _keywords = (
-        Section._join(
-            # This map is awful, I should have used explicit classes for the keywords.
-            # The format is as follows:
-            #   Either list or tuple:
-            # 	 Tuples are for items that should only appear once, like critical.
-            # 	 Lists are for items that can appear multiple times, like setenv.
-            # 	   Lists themselves contain tuples that adhere to the tuple idoim.
-            #
-            #   Tuple Idiom:
-            # 	 Tuples themselves contain a default and a line number:
-            # 	 (Default, -1)
-            # 	   The first value in the tuple, its type determines the behavior.
-            # 		 Strings are always searched and printed
-            # 		 Bools are ignored unless togled off the default
-            # 	   The second value is just for line numbers, -1 means not set.
-            #
-            # Because of the above designe description, handling this map is split into
-            # many many locations, such as _section_cmp() and format().
-            # XXX Fix this mess.
-            Section._keywords,
-            {
-                _KW_CONSOLE: SectionKeywordValues(
-                    _KW_CONSOLE, default=False),
-                _KW_CRITICAL: SectionKeywordValues(
-                    _KW_CRITICAL, default=False),
-                _KW_DISABLED: SectionKeywordValues(
-                    _KW_DISABLED, default=False),
-                _KW_SET_ENV: SectionKeywordValues(
-                    _KW_SET_ENV, is_appendable=True),
-                _KW_GET_ENV: SectionKeywordValues(
-                    _KW_GET_ENV, is_appendable=True),
-                _KW_SOCKET: SectionKeywordValues(
-                    _KW_SOCKET, is_appendable=True),
-                _KW_USER: SectionKeywordValues(
-                    _KW_USER, default='root'),
-                _KW_GROUP: SectionKeywordValues(
-                    _KW_GROUP, default='root'),
-                _KW_SECLABEL: SectionKeywordValues(_KW_SECLABEL),
-                _KW_ONESHOT: SectionKeywordValues(
-                    _KW_ONESHOT, default=False),
-                _KW_CLASS: SectionKeywordValues(
-                    _KW_CLASS, default='default'),
-                _KW_IOPRIO: SectionKeywordValues(_KW_IOPRIO),
-                _KW_ONRESTART: SectionKeywordValues(
-                    _KW_ONRESTART, is_appendable=True),
-                _KW_WRITEPID: SectionKeywordValues(
-                    _KW_WRITEPID, is_appendable=True),
-                _KW_KEYCODES: SectionKeywordValues(
-                    _KW_KEYCODES, is_appendable=True),
-                _KW_PRIORITY: SectionKeywordValues(
-                    _KW_PRIORITY, default=0, matcher=NumberMatcher),
-                _KW_START: SectionKeywordValues(_KW_START),
-            }))
+    _keywords = (Section._join(
+        Section._keywords, {
+            _KW_CONSOLE: SectionKeywordValues(
+                _KW_CONSOLE, default=False),
+            _KW_CRITICAL: SectionKeywordValues(
+                _KW_CRITICAL, default=False),
+            _KW_DISABLED: SectionKeywordValues(
+                _KW_DISABLED, default=False),
+            _KW_SET_ENV: SectionKeywordValues(
+                _KW_SET_ENV, is_appendable=True),
+            _KW_GET_ENV: SectionKeywordValues(
+                _KW_GET_ENV, is_appendable=True),
+            _KW_SOCKET: SectionKeywordValues(
+                _KW_SOCKET, is_appendable=True),
+            _KW_USER: SectionKeywordValues(
+                _KW_USER, default='root', is_default_printable=True),
+            _KW_GROUP: SectionKeywordValues(
+                _KW_GROUP, default='root', is_default_printable=True),
+            _KW_SECLABEL: SectionKeywordValues(_KW_SECLABEL),
+            _KW_ONESHOT: SectionKeywordValues(
+                _KW_ONESHOT, default=False),
+            _KW_CLASS: SectionKeywordValues(
+                _KW_CLASS, default='default'),
+            _KW_IOPRIO: SectionKeywordValues(_KW_IOPRIO),
+            _KW_ONRESTART: SectionKeywordValues(
+                _KW_ONRESTART, is_appendable=True),
+            _KW_WRITEPID: SectionKeywordValues(
+                _KW_WRITEPID, is_appendable=True),
+            _KW_KEYCODES: SectionKeywordValues(
+                _KW_KEYCODES, is_appendable=True),
+            _KW_PRIORITY: SectionKeywordValues(
+                _KW_PRIORITY, default=0, matcher=NumberMatcher),
+            _KW_START: SectionKeywordValues(_KW_START),
+        }))
 
     def __init__(self, *args, **kwargs):
         kwargs = dict(kwargs)
@@ -557,8 +779,7 @@ class ServiceSection(Section):
             sys.exit('Invalid service option: "%s" on line: %d' %
                      (keyword, lineno))
 
-        kw = self._option_map[keyword]
-        kw.push(args, lineno)
+        self._option_map[keyword].push(args, lineno)
 
     @staticmethod
     def get_keywords():
@@ -569,8 +790,15 @@ class ServiceSection(Section):
         return ServiceSection._keywords
 
 
+# Complains about CAPS for statics like ON
+# pylint: disable=invalid-name
 class InitParser(object):
+    '''This class parses the Android init.rc files  into a data structure for general consumption
+    by commandlets.
 
+    Args:
+        files ([ str, ... ]): A list of file paths to init.rc files to parse.
+    '''
     ON = 'on'
     SERVICE = 'service'
     IMPORT = 'import'
@@ -581,41 +809,43 @@ class InitParser(object):
         self._files = files
         self._items = {}
 
-        for k in InitParser._section_map:
-            self._items[k] = []
+        for key in InitParser._section_map:
+            self._items[key] = []
 
     def parse(self):
-        for p in self._files:
-            self._handle_file(p)
+        '''Invokes the parse operation.'''
+
+        for pfile in self._files:
+            self._handle_file(pfile)
 
     def _handle_file(self, path):
-        with open(path) as f:
+        with open(path) as open_file:
             current_section = None
             lineno = 0
             line = ''
-            for l in f:
-                l = l.strip()
+            for line_segment in open_file:
+                line_segment = line_segment.strip()
                 lineno = lineno + 1
 
                 # Skip empty (whitespace only) lines
-                if len(l) == 0:
+                if len(line_segment) == 0:
                     continue
 
                 # Skip comments
-                if l.startswith('#'):
+                if line_segment.startswith('#'):
                     continue
 
                 # Ignore pystache conditional lines
-                if l.startswith('{{'):
+                if line_segment.startswith('{{'):
                     continue
 
                 # handle line folding
-                if l.endswith('\\'):
-                    line += l + ' '
+                if line_segment.endswith('\\'):
+                    line += line_segment + ' '
                     continue
 
                 # process the complete line
-                line += l
+                line += line_segment
 
                 chunks = line.split()
                 section_name = chunks[0]
@@ -623,7 +853,7 @@ class InitParser(object):
                 # is the keyword a _name?
                 if section_name in InitParser._section_map:
                     if current_section != None:
-                        self._items[current_section.get_name()].append(
+                        self._items[current_section.name].append(
                             current_section)
 
                     args = ' '.join(chunks[1:])
@@ -645,7 +875,7 @@ class InitParser(object):
             # when the file ends, we need to push the last section
             # being parsed if set (ie dont push on blank file)
             if current_section != None:
-                self._items[current_section.get_name()].append(current_section)
+                self._items[current_section.name].append(current_section)
 
     def _section_factory(self, section_name, section_args, path, lineno):
 
@@ -657,7 +887,36 @@ class InitParser(object):
                                                lineno)
 
     def search(self, section_name, search, lazy_regex=False):
+        '''Searches the parsed init.rc data structure for a match.
 
+        The search dict is as described:
+        A dictionary of section keywords in string form, mapping to a list, or string of search
+        strings. Search strings can be strings supported by the NumberMatcher or RegexMatcher
+        classes.
+
+        Args:
+            section_name: The section to search, like "on" or "service".
+            search ({ str : [ str, ... ] }): the search dict.
+            lazy_regex(bool): True for lazy regex's False otherwise. Defaults to False.
+
+        Returns:
+            A list of matched Section objects, ie [ Section, ... ]
+
+        Example:
+            To search the service section for user foo and group foo and bar that has a
+            priority greater than 0:
+
+            d = {
+              'user'     : 'foo'
+              'group'    : [ 'foo', 'bar' ]
+              'priority' : '>0'
+            }
+
+            p = InitParser(['path/to/init.rc'])
+            p.parse()
+            matches = p.search('service', d, False)
+
+        '''
         found = []
         section = self._items[section_name]
 
@@ -668,6 +927,12 @@ class InitParser(object):
         return found
 
     def write(self, filep=sys.stdout, lineno=False):
+        '''Write the parsed init.rc structures to a file.
+
+        Args:
+            filep (file): The file to write to. Defaults to stdout.
+            lineno (bool): True to print line numbers, False otherwise.
+        '''
 
         things = []
         for section_name in InitParser._section_map.keys():
@@ -675,7 +940,7 @@ class InitParser(object):
             for x in section:
                 things.append(x)
 
-        things.sort(key=lambda sec: sec.get_lineno())
+        things.sort(key=lambda sec: sec.lineno)
 
         for x in things:
             x.write(filep=filep, lineno=lineno)
@@ -683,10 +948,25 @@ class InitParser(object):
 
     @staticmethod
     def get_section(name):
+        '''Given a section name aka keyword (like on, or service), returns the class for the
+        section.
+
+        Args:
+            name (str): The section name, "like" on or "service".
+
+        Returns:
+            The Section class, eg: ServiceSection.
+        '''
         return InitParser._section_map[name]
 
     @staticmethod
     def get_sectons():
+        '''Returns the raw section map as a dict.
+
+        Returns:
+            A dict of section names to section classes: { "str" : Section }.
+        '''
+
         return InitParser._section_map
 
     @staticmethod
@@ -698,44 +978,73 @@ class InitParser(object):
 
 
 class Test(object):
+    '''Creates a Test from the XML file. It processes test tags.
 
-    def __init__(self, *args, **kwargs):
-        self._name = 'unnamed' if 'name' not in kwargs else kwargs['name']
-        self._section = kwargs['section']
+    Args:
+        arg_dict (dict): Passed the argument dictionary from the XML parser.
+    '''
+
+    # complains about not using args
+    # pylint: disable=unused-argument
+    def __init__(self, arg_dict):
+        self._name = 'unnamed' if 'name' not in arg_dict else arg_dict['name']
+        self._section = arg_dict['section']
         self._searches = []
         self._exceptions = []
-        self._violators = None
+        self.violators = None
 
         self._current = None
 
+    # complains about not using args and arg_dict
+    # pylint: disable=unused-argument
     def start_search(self, *args, **kwargs):
+        '''Given the opening tag for search.'''
+
         self._current = dict({'section': self._section})
 
     def start_exception(self, *args, **kwargs):
+        '''Given the opening tag for exception'''
         self._current = dict()
 
     def end_search(self):
+        '''Given the closing tag for search'''
         self._searches.append(self._current)
         self._current = None
 
     def end_exception(self):
+        '''Given the closing tag for exception'''
         # self._current['section'] = self._section
         self._exceptions.append(self._current)
         self._current = None
 
     def append_keyword(self, search):
+        '''Appends an element to the current parser state.
+        The parser could be in a search or except block, and
+        it's adding keywords to that section. Keywords are
+        the same as section keywords.
+        '''
         for k, v in search.iteritems():
             if k not in self._current:
                 self._current[k] = []
             self._current[k].append(v)
 
-    def get_exceptions(self):
+    @property
+    def exceptions(self):
+        '''The list of exceptions'''
         return self._exceptions
 
-    def get_searches(self):
+    @property
+    def searches(self):
+        '''The list of searches'''
         return self._searches
 
     def write(self, filep=sys.stdout, lineno=False):
+        '''Writes the result of a test to a file
+
+        Args:
+            filep (file): The file to write to. Defaults to stdout.
+            lineno (bool): True to provide line numbers, False otherwise.
+        '''
 
         filep.write('test: ' + self._name + '\n')
         for x in self._searches:
@@ -744,17 +1053,32 @@ class Test(object):
         for x in self._exceptions:
             filep.write('\texcept: ' + str(x) + '\n')
 
-    def set_violators(self, violators):
-        self._violators = violators
-
-    def get_violators(self):
-        return self._violators
-
-    def getName(self):
+    @property
+    def name(self):
+        '''The name of the test as set via the name attribute of the test tag.'''
         return self._name
 
 
 class AssertParser(xml.sax.ContentHandler):
+    '''Parses an Assert xml file. An assert xml file contains assertions that
+    one would like to make about a particular init.rc file.
+
+    Example structure:
+    <suite>
+      <test name="No world sockets" section="service">
+        <search>
+          <keyword socket="[0-9]{3}[2-7]"/>
+        </search>
+        <except>
+          <!-- Except logd with these explicit sockets -->
+          <keyword args="logd /system/bin/logd"/>
+          <keyword socket="logd stream 0666 logd logd"/>
+          <keyword socket="logdr seqpacket 0666 logd logd"/>
+          <keyword socket="logdw dgram 0222 logd logd"/>
+        </except>
+      </test>
+    </suite>
+    '''
 
     def __init__(self, *args, **kwargs):
         xml.sax.ContentHandler.__init__(self, *args, **kwargs)
@@ -768,7 +1092,7 @@ class AssertParser(xml.sax.ContentHandler):
         attrs = dict(attrs)
 
         if name == 'test':
-            self._current = Test(**attrs)
+            self._current = Test(attrs)
 
         elif name == 'search':
             if 'lazy' not in attrs:
@@ -804,6 +1128,7 @@ class AssertParser(xml.sax.ContentHandler):
 
 
 class commandlet(object):
+    '''Decorator class for commandlet. You can add commandlets to the tool with this decorator.'''
 
     _commandlets = {}
 
@@ -821,19 +1146,51 @@ class commandlet(object):
 
     @staticmethod
     def get():
+        '''Retrieves the list of registered commandlets.'''
         return commandlet._commandlets
 
     @staticmethod
     def set(cmdlets):
+        '''Sets the commandlet list.'''
         commandlet._commandlets = cmdlets
 
 
+class Command(object):
+    '''Baseclass for a commandlet. Commandlets shall implement this interface.'''
+
+    def generate_options(self, group_parser):
+        '''Adds it's options to the group parser. The parser passed in is a result from
+        calling add_argument_group(ArgumentGroup): https://docs.python.org/2/library/argparse.html
+
+        Args:
+            group_parser(): The parser to add options too.
+
+        '''
+        raise NotImplementedError('Implement: generate_options')
+
+    def __call__(self, init_parser, args):
+        '''Called when the user selects your commandlet and passed the dictionary of arguments.
+
+        Arguments:
+            init_parser (InitParser): The init parser post parse() being called.
+            args ({str: arg}: The dictionary version of the attrs of the parser.
+                The args value is obtained by:
+                args = opt_parser.parse_args()
+                args = vars(args)
+
+                So to access args just do args['name']
+        '''
+        raise NotImplementedError('Implement: __call__')
+
+
 @commandlet("print")
-class PrintCommand(object):
+class PrintCommand(Command):
     '''
 	Dumps the contents of the init.rc file to stdout
 	'''
 
+    # This has to adhere to an interface.
+    # pylint: disable=no-self-use
     def generate_options(self, group_parser):
         group_parser.add_argument(
             '--lineno',
@@ -845,7 +1202,7 @@ class PrintCommand(object):
 
 
 @commandlet("search")
-class SearchCommand(object):
+class SearchCommand(Command):
     '''
 	Searches the init.rc for the specified section for a specified keyword regex.
 	'''
@@ -863,6 +1220,7 @@ class SearchCommand(object):
             kwargs = opt[1] if len(opt) == 2 else {}
             group_parser.add_argument(*args, **kwargs)
 
+    # pylint: disable=too-many-locals
     def __call__(self, init_parser, args):
 
         # Get the option map and filter it for the selected
@@ -919,7 +1277,7 @@ class SearchCommand(object):
             return found
 
         if count:
-            print(len(found))
+            print len(found)
             return found
 
         for m in found:
@@ -968,17 +1326,10 @@ class SearchCommand(object):
                     istype = section_key_words.type
 
                     if is_appendable:
-                        h = 'argument is a valid regex. Multiple specifications of the option result in the logical and of all specified options.'
-
-                        class custom_action(argparse.Action):
-
-                            def __call__(self,
-                                         parser,
-                                         args,
-                                         values,
-                                         option_string=None):
-                                getattr(args, self.dest)
-                                setattr(args, self.dest, RegexMatcher(values))
+                        h = (
+                            'argument is a valid regex. Multiple specifications of the option'
+                            ' result in the logical and of all specified options.'
+                        )
 
                         opts.append(('--' + key_word, {
                             'help': 'Section: ' + key_word + '. ' + h,
@@ -986,7 +1337,9 @@ class SearchCommand(object):
                         }))
 
                     elif istype is bool:
-                        h = 'true if specified. Multiple specifications of the option result in the last option specified used.'
+                        h = (
+                            'true if specified. Multiple specifications of the option result in'
+                            ' the last option specified used.')
                         opts.append(('--' + key_word, {
                             'help': 'Section: ' + key_word + '. ' + h,
                             'action': 'store_const',
@@ -1002,16 +1355,19 @@ class SearchCommand(object):
 
                     elif istype is int:
                         h = (
-                            'argument is a valid int, equality expression(<x|<=x|==x|>=x|>x or integer range as a,b. Use quotes to deal with shells.'
-                            'Multiple specifications of the option result in the last option specified used.'
-                        )
+                            'argument is a valid int, equality expression(<x|<=x|==x|>=x|>x or'
+                            ' integer range as a,b. Use quotes to deal with shells. Multiple'
+                            ' specifications of the option result in the last option specified'
+                            ' used.')
                         opts.append(('--' + key_word, {
                             'help': 'Section: ' + key_word + '. ' + h,
                             'action': 'store'
                         }))
 
                     else:
-                        h = 'argument is a valid regex. Multiple specifications of the option result in the last option specified used.'
+                        h = (
+                            'argument is a valid regex. Multiple specifications of the option'
+                            ' result in the last option specified used.')
                         opts.append(('--' + key_word, {
                             'help': 'Section: ' + key_word + '. ' + h,
                             'action': 'store',
@@ -1023,11 +1379,16 @@ class SearchCommand(object):
 
 
 @commandlet("verify")
-class VerifyCommand(object):
+class VerifyCommand(Command):
     '''
 	Verifies the contents of the init.rc against a file of assertions and white-list exceptions
 	'''
 
+    def __init__(self):
+        self._init_parser = None
+
+    # adhere to an interface
+    # pylint: disable=no-self-use
     def generate_options(self, group_parser):
         group_parser.add_argument(
             '--assert',
@@ -1058,11 +1419,11 @@ class VerifyCommand(object):
         failed_tests = []
         # find them all!
         for t in verifier:
-            e = t.get_exceptions()
-            s = t.get_searches()
+            e = t.exceptions
+            s = t.searches
             v = self._violations_search(s, e)
             if len(v) > 0:
-                t.set_violators(v)
+                t.violators = v
                 failed_tests.append(t)
 
         # nothing failed/reportable
@@ -1082,16 +1443,16 @@ class VerifyCommand(object):
         kws = "	<keyword %s ='%s' />\n"
 
         for t in failed_tests:
-            sys.stderr.write('Failed test(' + t.getName() + '):\n')
-            for violator in t.get_violators():
+            sys.stderr.write('Failed test(' + t.name + '):\n')
+            for violator in t.violators:
 
                 # We print args + keyword hoping to avoid duplicate matches, but perhaps its best
                 # to print the whole section here.
                 sys.stderr.write('  <except>\n')
-                x = violator.get_section().get_args()
+                x = violator.section.get_args()
                 sys.stderr.write(kws % (str(x), x.values[0].value))
 
-                for k, v in violator.get_sub_matches().iteritems():
+                for k, v in violator.submatches.iteritems():
                     for x in v.values:
                         sys.stderr.write(kws % (k, x.value))
 
@@ -1100,10 +1461,10 @@ class VerifyCommand(object):
     @staticmethod
     def _print(failed_tests):
         for t in failed_tests:
-            sys.stderr.write('Failed test(' + t.getName() + '):\n')
-            for match in t.get_violators():
-                submatches = match.get_sub_matches()
-                sys.stderr.write(match.get_section().get_header() + '\n')
+            sys.stderr.write('Failed test(' + t.name + '):\n')
+            for match in t.violators:
+                submatches = match.submatches
+                sys.stderr.write(match.section.get_header() + '\n')
                 for k, section_keyword_values in submatches.iteritems():
                     for line_value in section_keyword_values.values:
                         sys.stderr.write('\t\t' + k + '(' + str(
@@ -1115,7 +1476,7 @@ class VerifyCommand(object):
         # we use a set to de-duplicate the results from
         # multiple searches
         # We are building sets of hash objects, this will call
-        # the Match.__hash__() method.
+        # the SubMatches.__hash__() method.
         found = set()
         excepts = set()
 
@@ -1126,12 +1487,21 @@ class VerifyCommand(object):
             f = self._search(s)
             if f != None:
                 for x in f:
-                    if not self.filter(exception_args, x):
+                    if not VerifyCommand.filter(exception_args, x):
                         found.add(x)
 
         return found - excepts
 
-    def filter(self, exception_args, found):
+    @staticmethod
+    def filter(exception_args, found):
+        '''Filters the found exceptions against the list of exceptions, removing them.
+            Args:
+                found ([Section]): The found Sections from the search.
+                exception_args({}): The exceptions that can be removed from found.
+
+            Returns:
+                The list of Filtered Sections.
+        '''
 
         for e in exception_args:
             m = found.match(e)
@@ -1143,6 +1513,7 @@ class VerifyCommand(object):
 
 
 def main():
+    '''The main entry point.'''
 
     opt_parser = argparse.ArgumentParser(
         description='A tool for intelligent searching of Android init.rc files')

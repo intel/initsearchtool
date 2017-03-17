@@ -39,6 +39,9 @@ class NumberMatcher(object):
         matcher (str): A match pattern search string.
         lazy_regex (bool): unused, required for interface.
 
+    Exceptions:
+        ValueError: With a descriptive error message set.
+
     Example:
         n = NumberMatcher("<=4", False)
         n.match(1) : SubMatches()
@@ -73,6 +76,8 @@ class NumberMatcher(object):
         # order matters, check longest first!
         if matcher.startswith("=="):
             self._operator = "=="
+        elif matcher.startswith("!="):
+            self._operator = "!="
         elif matcher.startswith("<="):
             self._operator = "<="
         elif matcher.startswith(">="):
@@ -88,10 +93,11 @@ class NumberMatcher(object):
         try:
             self._values = int(number, 0)
         except ValueError:
-            sys.exit('Attempted operator "%s", but failed.'
-                     'Expected a number, got: "%s",'
-                     'perhaps invalid operator?'
-                     'Use quotes, the shell steals' % (self._operator, number))
+            raise ValueError('Attempted operator "%s", but failed.'
+                             'Expected a number, got: "%s",'
+                             'perhaps invalid operator?'
+                             'Use quotes, the shell steals' %
+                             (self._operator, number))
 
     def _handle_range(self, matcher):
 
@@ -146,6 +152,8 @@ class NumberMatcher(object):
             match = re.match(str(number), str(number))
         elif self._operator == '==' and number == self._values:
             match = re.match(str(number), str(number))
+        elif self._operator == '!=' and number != self._values:
+            match = re.match(str(number), str(number))
         elif self._operator == '>' and number > self._values:
             match = re.match(str(number), str(number))
         elif self._operator == '>=' and number >= self._values:
@@ -168,11 +176,11 @@ class RegexMatcher(object):
 
     Example:
         n = RegexMatcher("foo", False)
-        n.match("foo bar) : SubMatches()
+        n.match("foo bar") : SubMatches()
         n.match("bar") : None
 
         n = RegexMatcher("foo", True)
-        n.match("foo bar) : None
+        n.match("foo bar") : None
         n.match("bar") : None
 
         Where SubMatches() objects mean it was a match.
@@ -291,19 +299,19 @@ class SubMatches(object):
         sub_keys = set(subs.keys())
         keys = fltr_keys & sub_keys
 
-        # Search each key values in the filter (white list exception)
+        # Search each key section_keyword_values in the filter (white list exception)
         for key in keys:
-            values = fltr[key]
+            section_keyword_values = fltr[key]
 
             # Keep a copy of the list associated with the key, we remove the
             # items from the list when a filter matches
-            sub = list(subs[key])
+            sub = list(subs[key].values)
 
             # For each line in the exceptions filter, we compile it
             # as a possible regex and search the sub_matches with it.
-            for value in values:
+            for value in section_keyword_values.values:
                 # If we find a match we remove it from the copy of sub_matches
-                if value in subs[key]:
+                if value in subs[key].values:
                     sub.remove(value)
 
             # If anything is left in the list of things, we add it as 'left', ie the delta
@@ -327,6 +335,9 @@ class SectionValue(object):
     def __str__(self):
         return str(self.value).lower() if isinstance(self.value,
                                                      bool) else self.value
+
+    def __eq__(self, other):
+        return self.value == other.value
 
 
 class SectionKeywordValues(object):
@@ -812,9 +823,6 @@ class InitParser(object):
         for key in InitParser._section_map:
             self._items[key] = []
 
-    def parse(self):
-        '''Invokes the parse operation.'''
-
         for pfile in self._files:
             self._handle_file(pfile)
 
@@ -913,10 +921,10 @@ class InitParser(object):
             }
 
             p = InitParser(['path/to/init.rc'])
-            p.parse()
             matches = p.search('service', d, False)
 
         '''
+
         found = []
         section = self._items[section_name]
 
@@ -1141,18 +1149,13 @@ class commandlet(object):
         commandlet._commandlets[cmd] = None
 
     def __call__(self, cls):
-        commandlet._commandlets[self._cmd] = cls
+        commandlet._commandlets[self._cmd] = cls()
         return cls
 
     @staticmethod
     def get():
         '''Retrieves the list of registered commandlets.'''
         return commandlet._commandlets
-
-    @staticmethod
-    def set(cmdlets):
-        '''Sets the commandlet list.'''
-        commandlet._commandlets = cmdlets
 
 
 class Command(object):
@@ -1172,7 +1175,7 @@ class Command(object):
         '''Called when the user selects your commandlet and passed the dictionary of arguments.
 
         Arguments:
-            init_parser (InitParser): The init parser post parse() being called.
+            init_parser (InitParser): The init parser.
             args ({str: arg}: The dictionary version of the attrs of the parser.
                 The args value is obtained by:
                 args = opt_parser.parse_args()
@@ -1414,6 +1417,9 @@ class VerifyCommand(Command):
             genmode = args['gen']
             del args['gen']
 
+        # Hidden option for testing
+        silent = args['silent'] if 'silent' in args else False
+
         self._init_parser = init_parser
 
         failed_tests = []
@@ -1426,14 +1432,12 @@ class VerifyCommand(Command):
                 t.violators = v
                 failed_tests.append(t)
 
-        # nothing failed/reportable
-        if len(failed_tests) == 0:
-            return
+        if silent:
+            return failed_tests
 
         if not genmode:
             VerifyCommand._print(failed_tests)
             sys.exit(len(failed_tests))
-
         else:
             VerifyCommand._gen(failed_tests)
 
@@ -1449,12 +1453,13 @@ class VerifyCommand(Command):
                 # We print args + keyword hoping to avoid duplicate matches, but perhaps its best
                 # to print the whole section here.
                 sys.stderr.write('  <except>\n')
-                x = violator.section.get_args()
-                sys.stderr.write(kws % (str(x), x.values[0].value))
+                skv = violator.section.get_args()
+                sys.stderr.write(kws % (str(skv), skv.values[0].value))
 
-                for k, v in violator.submatches.iteritems():
-                    for x in v.values:
-                        sys.stderr.write(kws % (k, x.value))
+                for keyword, skw in violator.submatches.iteritems():
+
+                    for sv in skw.values:
+                        sys.stderr.write(kws % (keyword, sv.value))
 
                 sys.stderr.write('  </except>\n')
 
@@ -1466,9 +1471,9 @@ class VerifyCommand(Command):
                 submatches = match.submatches
                 sys.stderr.write(match.section.get_header() + '\n')
                 for k, section_keyword_values in submatches.iteritems():
-                    for line_value in section_keyword_values.values:
-                        sys.stderr.write('\t\t' + k + '(' + str(
-                            line_value.lineno) + ') : ' + line_value.value)
+                    for sv in section_keyword_values.values:
+                        sys.stderr.write('\t\t' + k + '(' + str(sv.lineno) +
+                                         ') : ' + sv.value)
                         sys.stderr.write('\n')
 
     def _violations_search(self, search_args, exception_args):
@@ -1478,7 +1483,6 @@ class VerifyCommand(Command):
         # We are building sets of hash objects, this will call
         # the SubMatches.__hash__() method.
         found = set()
-        excepts = set()
 
         for s in search_args:
             # Set the internal search flag to silent so we get
@@ -1490,7 +1494,7 @@ class VerifyCommand(Command):
                     if not VerifyCommand.filter(exception_args, x):
                         found.add(x)
 
-        return found - excepts
+        return found
 
     @staticmethod
     def filter(exception_args, found):
@@ -1521,7 +1525,6 @@ def main():
     subparser = opt_parser.add_subparsers(help='commands')
 
     commandlets = commandlet.get()
-    tmp = {}
 
     # for each commandlet, instantiate and set up their options
     for n, c in commandlets.iteritems():
@@ -1529,8 +1532,6 @@ def main():
         p.add_argument('files', help='The init.rc file(s) to search', nargs='+')
         p.set_defaults(which=n)
         # Instantiate
-        c = c()
-        tmp[n] = c
 
         opt_gen = getattr(c, 'generate_options', None)
         if callable(opt_gen):
@@ -1539,13 +1540,9 @@ def main():
             # get args
             c.generate_options(g)
 
-    # reassign constructed commandlets
-    commandlet.set(tmp)
-
     args = opt_parser.parse_args()
 
     init_parser = InitParser(args.files)
-    init_parser.parse()
 
     d = vars(args)
     which = d['which']

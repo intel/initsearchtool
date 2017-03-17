@@ -1,5 +1,5 @@
 # compiled python files
-.pyc
+*.pyc
 
 # gedit temp files
 *~

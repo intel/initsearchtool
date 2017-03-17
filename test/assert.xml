@@ -2,7 +2,7 @@
 <suite>
   <test name="No world sockets" section="service">
     <search>
-      <keyword socket="[0-9]{3}[2-7]"/>
+      <keyword socket="0[0-9]{2}[2-7]"/>
     </search>
     <except>
       <!-- Except logd with these explicit sockets -->

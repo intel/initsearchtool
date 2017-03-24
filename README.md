@@ -1,5 +1,7 @@
 # Init Search Tool
 
+[![Build Status](https://travis-ci.org/01org/initsearchtool.svg?branch=master)](https://travis-ci.org/01org/initsearchtool)
+
 ## About
 The init search tool aka isearch, is a tool for intelligently searching Android
 [<sup>TM</sup>](#trademark)
@@ -50,7 +52,20 @@ supplied strings must match. Many section keywords are cumulative with the
 exception of args (for all sections) and some service keywords. Boolean service
 keywords, like *critical* are not cumulative and can be also searched by their
 Boolean logic not equivalent, *--critical* or *--notcritical*. The general format
-for search keywords is --<keyword> and --not<keyword>
+for search keywords is --<keyword> and --not<keyword>. Most search options take
+a regular expression argument. For instance, the *--socket* keyword for the
+service section. However, for numerical argument only keywords, like *--priority*
+, they accept there own mini-language for searching, where `[num]` is a number supported
+by int(`[num]`, 0) in python. The mini langauage is defined as:
+* `<[num]`  : less than
+* `<=[num]` : less than or equal to
+* `==[num]` : equality
+* `>[num]`  : greater than
+* `>=[num]` : greater than or equal to
+
+Additionally, the number can be specified directly with no operator, however it is just
+shorthand notation for equality.
+* initse`[num]` : equality, same as `==[num]`
 
 Additional output options include *--tidy* which prints only matches within
 the section, and *--lineno* to print line numbers with the output. An unset
